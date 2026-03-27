@@ -1,7 +1,9 @@
 import { Link, useLocation } from "@tanstack/react-router";
+import { onAuthStateChanged, type User } from "firebase/auth";
 import { Menu, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { getFirebaseAuth } from "@/lib/firebase";
 import logo from "../assets/logo.png";
 
 const navLinks = [
@@ -16,6 +18,8 @@ const navLinks = [
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const location = useLocation();
 
   const isHomePage = location.pathname === "/";
@@ -25,6 +29,18 @@ export default function Navbar() {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    return onAuthStateChanged(auth, (u) => {
+      setAuthUser(u);
+      setAuthResolved(true);
+    });
+  }, []);
+  const isPostSigninPage =
+    location.pathname.startsWith("/student/dashboard") ||
+    location.pathname.startsWith("/advisor/dashboard");
+  const showTopNav = !isPostSigninPage || !authResolved || !authUser;
 
   const handleNavClick = (href: string) => {
     setMobileOpen(false);
@@ -67,45 +83,53 @@ export default function Navbar() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-6">
-          {navLinks.map((link) => (
-            <button
-              type="button"
-              key={link.href}
-              onClick={() => handleNavClick(link.href)}
-              className="text-sm font-body text-muted-foreground hover:text-foreground transition-colors duration-200 hover:text-glow-teal"
-              data-ocid="nav.link"
-            >
-              {link.label}
-            </button>
-          ))}
-        </nav>
+        {showTopNav ? (
+          <nav className="hidden md:flex items-center gap-6">
+            {navLinks.map((link) => (
+              <button
+                type="button"
+                key={link.href}
+                onClick={() => handleNavClick(link.href)}
+                className="text-sm font-body text-muted-foreground hover:text-foreground transition-colors duration-200 hover:text-glow-teal"
+                data-ocid="nav.link"
+              >
+                {link.label}
+              </button>
+            ))}
+          </nav>
+        ) : (
+          <div className="hidden md:block" />
+        )}
 
         {/* Get Started Button */}
-        <div className="hidden md:flex items-center gap-3">
-          <Link
-            to="/get-started"
-            className="inline-flex items-center justify-center bg-neon-orange hover:bg-neon-orange/80 hover:scale-105 text-black font-semibold rounded-xl px-5 py-2 text-sm glow-orange transition-all duration-300"
-          >
-            Get Started
-          </Link>
-        </div>
+        {showTopNav ? (
+          <div className="hidden md:flex items-center gap-3">
+            <Link
+              to="/get-started"
+              className="inline-flex items-center justify-center bg-neon-orange hover:bg-neon-orange/80 hover:scale-105 text-black font-semibold rounded-xl px-5 py-2 text-sm glow-orange transition-all duration-300"
+            >
+              Get Started
+            </Link>
+          </div>
+        ) : null}
 
         {/* Mobile toggle */}
-        <button
-          type="button"
-          className="md:hidden text-foreground p-2"
-          onClick={() => setMobileOpen(!mobileOpen)}
-          data-ocid="nav.toggle"
-          aria-label="Toggle menu"
-        >
-          {mobileOpen ? <X size={22} /> : <Menu size={22} />}
-        </button>
+        {showTopNav ? (
+          <button
+            type="button"
+            className="md:hidden text-foreground p-2"
+            onClick={() => setMobileOpen(!mobileOpen)}
+            data-ocid="nav.toggle"
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        ) : null}
       </div>
 
       {/* Mobile menu */}
       <AnimatePresence>
-        {mobileOpen && (
+        {showTopNav && mobileOpen && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}

@@ -1,25 +1,46 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { LogIn } from "lucide-react";
-import { AuthShell } from "./AuthShell";
+import { PasswordField } from "@/components/ui/password-field";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { Link, useNavigate } from "@tanstack/react-router";
+import {
+  signInWithEmailAndPassword,
+} from "firebase/auth";
+import { Loader, LogIn } from "lucide-react";
+import { useState } from "react";
+import { AuthShell } from "./AuthShell";
+import { ForgotPasswordOtpDialog } from "@/components/auth/ForgotPasswordOtpDialog";
 
 export default function AdvisorLoginPage() {
-  const [name, setName] = useState("");
   const [collegeEmail, setCollegeEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
 
   const navigate = useNavigate();
 
-  const handleLogin = () => {
-    if (!name || !collegeEmail || !password) {
-      alert("Please fill all fields!");
+  const handleLogin = async () => {
+    if (!collegeEmail || !password) {
+      alert("Please enter college email and password.");
       return;
     }
-    console.log("Advisor logging in:", { name, collegeEmail });
-    // ✅ Redirect to advisor dashboard after login
-    navigate({ to: "/advisor/dashboard" });
+    setBusy(true);
+    try {
+      await signInWithEmailAndPassword(
+        getFirebaseAuth(),
+        collegeEmail.trim(),
+        password,
+      );
+      navigate({ to: "/advisor/dashboard" });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Sign-in failed.");
+    } finally {
+      setBusy(false);
+    }
   };
+
+  function handleForgotPassword() {
+    setForgotOpen(true);
+  }
 
   return (
     <AuthShell
@@ -27,23 +48,21 @@ export default function AdvisorLoginPage() {
       subtitle="Welcome back. Sign in to manage your advisor profile."
     >
       <div className="flex flex-col gap-4">
+        <p className="text-xs text-muted-foreground rounded-lg border border-border/60 px-3 py-2">
+          Sign-in is handled by{" "}
+          <strong className="text-foreground">Firebase</strong> (your college
+          email and password from sign-up).
+        </p>
 
-        {/* Name */}
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Full Name</label>
+          <label
+            htmlFor="advisor-login-email"
+            className="text-sm text-muted-foreground"
+          >
+            College Email
+          </label>
           <input
-            type="text"
-            placeholder="Your full name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
-          />
-        </div>
-
-        {/* College Email */}
-        <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">College Email</label>
-          <input
+            id="advisor-login-email"
             type="email"
             placeholder="you@college.edu.in"
             value={collegeEmail}
@@ -52,39 +71,57 @@ export default function AdvisorLoginPage() {
           />
         </div>
 
-        {/* Password */}
-        <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Password</label>
-          <input
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
-          />
-        </div>
+        <PasswordField
+          id="advisor-login-password"
+          label="Password"
+          value={password}
+          onChange={setPassword}
+          variant="orange"
+          autoComplete="current-password"
+        />
 
-        {/* Buttons */}
         <div className="flex flex-col sm:flex-row gap-3 mt-2">
           <Button
             onClick={handleLogin}
+            disabled={busy}
             className="bg-neon-orange hover:bg-neon-orange/90 text-background font-semibold rounded-xl px-5 glow-orange transition-all duration-300"
           >
-            <LogIn size={16} className="mr-2" />
+            {busy ? (
+              <Loader size={16} className="mr-2 animate-spin" />
+            ) : (
+              <LogIn size={16} className="mr-2" />
+            )}
             Sign In
           </Button>
           <Button
+            type="button"
             variant="outline"
+            onClick={handleForgotPassword}
             className="border-neon-orange/40 text-neon-orange hover:bg-neon-orange/10 hover:border-neon-orange rounded-xl px-5 transition-all duration-300"
           >
             Forgot Password
           </Button>
         </div>
 
-        {/* Signup Link */}
+        <ForgotPasswordOtpDialog
+          open={forgotOpen}
+          onOpenChange={setForgotOpen}
+          role="advisor"
+          email={collegeEmail}
+          onEmailChange={setCollegeEmail}
+          accent="orange"
+          onResetSuccess={async (e, newPass) => {
+            await signInWithEmailAndPassword(getFirebaseAuth(), e, newPass);
+            navigate({ to: "/advisor/dashboard" });
+          }}
+        />
+
         <p className="text-sm text-muted-foreground text-center mt-2">
           New advisor?{" "}
-          <Link to="/auth/advisor/signup" className="text-neon-orange hover:underline">
+          <Link
+            to="/auth/advisor/signup"
+            className="text-neon-orange hover:underline"
+          >
             Create account
           </Link>
         </p>

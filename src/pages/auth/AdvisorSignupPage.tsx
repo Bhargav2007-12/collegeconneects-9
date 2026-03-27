@@ -1,16 +1,64 @@
-import { useState, useRef, useEffect } from "react";
+import { LanguageMultiSelect } from "@/components/signup/LanguageMultiSelect";
+
 import { Button } from "@/components/ui/button";
-import { UserPlus, CheckCircle, Mail, Loader, Upload, X } from "lucide-react";
-import { AuthShell } from "./AuthShell";
+import { PasswordField } from "@/components/ui/password-field";
+import { OTHER_LANGUAGE_LABEL } from "@/constants/signupLanguages";
+import { getFirebaseAuth } from "@/lib/firebase";
+import { afterVerificationEmailSent } from "@/lib/authMessages";
+import {
+  formatFirebaseAuthError,
+  isFirebaseAuthCode,
+} from "@/lib/firebaseAuthErrors";
+import { useEmailVerificationSync } from "@/hooks/useEmailVerificationSync";
+import { finalizeFirebaseSignup } from "@/lib/firebaseSignupFinalize";
+import { registerAdvisor } from "@/lib/restApi";
+import { FirebaseError } from "firebase/app";
 import { useNavigate } from "@tanstack/react-router";
+import {
+  type User,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  reload,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut,
+} from "firebase/auth";
+import { CheckCircle, Loader, Mail, Upload, UserPlus, X } from "lucide-react";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { AuthShell } from "./AuthShell";
 
 const INDIAN_STATES = [
-  "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
-  "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka",
-  "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram",
-  "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu",
-  "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
-  "Delhi", "Jammu & Kashmir", "Ladakh"
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chhattisgarh",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+  "Delhi",
+  "Jammu & Kashmir",
+  "Ladakh",
 ];
 
 const EMAIL_TO_COLLEGE: Record<string, string> = {
@@ -64,8 +112,75 @@ const EMAIL_TO_COLLEGE: Record<string, string> = {
   "iiitd.ac.in": "IIIT Delhi",
   "bits-pilani.ac.in": "BITS Pilani",
   "dtu.ac.in": "DTU Delhi",
-  "nsut.ac.in": "NSUT Delhi",
+  "nsut.ac.in": "NSUT Delhi", // -------- TOP PRIVATE COLLEGES (INDIA) --------
+
+  "vit.ac.in": "VIT Vellore",
+  "vitstudent.ac.in": "VIT Vellore",
+
+  "srmist.edu.in": "SRM Institute of Science and Technology",
+  "srm.edu.in": "SRM University",
+
+  "amity.edu": "Amity University",
+
+  "manipal.edu": "Manipal Institute of Technology",
+  "learner.manipal.edu": "Manipal University",
+
+  "shivnadaredu.com": "Shiv Nadar University",
+  "snu.edu.in": "Shiv Nadar University",
+
+  "ashoka.edu.in": "Ashoka University",
+
+  "flame.edu.in": "FLAME University",
+
+  "opju.ac.in": "OP Jindal Global University",
+  "jgu.edu.in": "Jindal Global University",
+
+  "nmims.edu": "NMIMS Mumbai",
+
+  "christuniversity.in": "Christ University",
+
+  "symbiosis.ac.in": "Symbiosis International University",
+  "siu.edu.in": "Symbiosis University",
+
+  "mitwpu.edu.in": "MIT World Peace University",
+
+  "kiit.ac.in": "KIIT University",
+
+  "lpu.in": "Lovely Professional University",
+
+  "upes.ac.in": "UPES Dehradun",
+
+  "bennett.edu.in": "Bennett University",
+
+  "plaksha.edu.in": "Plaksha University",
+
+  "mahindrauniversity.edu.in": "Mahindra University",
+
+  "spit.ac.in": "SPIT Mumbai",
+
+  "thapar.edu": "Thapar Institute of Engineering and Technology",
+
+  "iitmjanakpuri.com": "IITM Delhi (Private)",
+
+  "iitm.edu": "IITM (various private institutes - handle carefully)",
+
+  // Design / niche institutes
+  "nift.ac.in": "NIFT",
+  "nid.edu": "NID",
+  "iihmr.edu.in": "IIHMR University",
+
+  // Business schools
+  "isb.edu": "Indian School of Business",
+  "mdi.ac.in": "MDI Gurgaon",
+  "greatlakes.edu.in": "Great Lakes Institute of Management",
+  "spjimr.org": "SPJIMR Mumbai",
 };
+
+const HOURLY_TIME_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:00 ${suffix}`;
+});
 
 function detectCollege(email: string): string {
   const domain = email.split("@")[1]?.toLowerCase();
@@ -77,9 +192,17 @@ function detectCollege(email: string): string {
   return "";
 }
 
-function ImageUploadBox({ label, preview, onUpload, onRemove }: {
-  label: string; preview: string | null;
-  onUpload: (file: File) => void; onRemove: () => void;
+
+function ImageUploadBox({
+  label,
+  preview,
+  onUpload,
+  onRemove,
+}: {
+  label: string;
+  preview: string | null;
+  onUpload: (file: File) => void;
+  onRemove: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -91,9 +214,16 @@ function ImageUploadBox({ label, preview, onUpload, onRemove }: {
       <p className="text-xs text-muted-foreground mb-1">{label}</p>
       {preview ? (
         <div className="relative rounded-xl overflow-hidden border border-green-500 h-32">
-          <img src={preview} alt={label} className="w-full h-full object-cover" />
-          <button type="button" onClick={onRemove}
-            className="absolute top-1 right-1 bg-black/60 rounded-full p-1 text-white hover:bg-black/80 transition-all">
+          <img
+            src={preview}
+            alt={label}
+            className="w-full h-full object-cover"
+          />
+          <button
+            type="button"
+            onClick={onRemove}
+            className="absolute top-1 right-1 bg-black/60 rounded-full p-1 text-white hover:bg-black/80 transition-all"
+          >
             <X size={12} />
           </button>
           <div className="absolute bottom-1 left-1 bg-green-500/80 rounded-full px-2 py-0.5 text-xs text-white flex items-center gap-1">
@@ -101,20 +231,31 @@ function ImageUploadBox({ label, preview, onUpload, onRemove }: {
           </div>
         </div>
       ) : (
-        <button type="button" onClick={() => inputRef.current?.click()}
-          className="h-32 border-2 border-dashed border-border hover:border-neon-orange rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-neon-orange transition-all duration-300 cursor-pointer">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="h-32 border-2 border-dashed border-border hover:border-neon-orange rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-neon-orange transition-all duration-300 cursor-pointer"
+        >
           <Upload size={20} />
           <span className="text-xs">Click to upload</span>
           <span className="text-xs opacity-60">JPG, PNG (max 5MB)</span>
         </button>
       )}
-      <input ref={inputRef} type="file" accept="image/*" onChange={handleChange} className="hidden" />
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleChange}
+        className="hidden"
+      />
     </div>
   );
 }
 
 export default function AdvisorSignupPage() {
   const navigate = useNavigate();
+  const [, bump] = useReducer((x: number) => x + 1, 0);
+  const [authUser, setAuthUser] = useState<User | null>(null);
   const [name, setName] = useState("");
   const [gender, setGender] = useState("");
   const [collegeEmail, setCollegeEmail] = useState("");
@@ -129,75 +270,297 @@ export default function AdvisorSignupPage() {
   const [bio, setBio] = useState("");
   const [skills, setSkills] = useState("");
   const [achievements, setAchievements] = useState("");
-  const [languages, setLanguages] = useState("");
+  const [languages, setLanguages] = useState<string[]>([]);
+  const [languageOther, setLanguageOther] = useState("");
   const [sessionPrice, setSessionPrice] = useState("");
+  const [preferredTimezones, setPreferredTimezones] = useState<
+    Array<{ from: string; to: string }>
+  >([
+    { from: "", to: "" },
+    { from: "", to: "" },
+    { from: "", to: "" },
+    { from: "", to: "" },
+  ]);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [verifying, setVerifying] = useState(false);
-  const [verified, setVerified] = useState(false);
-  const [passwordSent, setPasswordSent] = useState(false);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [refreshingEmail, setRefreshingEmail] = useState(false);
   const [idFrontPreview, setIdFrontPreview] = useState<string | null>(null);
   const [idFrontFile, setIdFrontFile] = useState<File | null>(null);
   const [idBackPreview, setIdBackPreview] = useState<string | null>(null);
   const [idBackFile, setIdBackFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     document.title = "Advisor Sign Up — CollegeConnect";
   }, []);
 
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    return onAuthStateChanged(auth, setAuthUser);
+  }, []);
+
+  useEmailVerificationSync(authUser, setAuthUser, bump);
+
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const email = e.target.value;
     setCollegeEmail(email);
     setDetectedCollege(detectCollege(email));
-    setVerified(false);
-    setPasswordSent(false);
   };
 
-  const handleVerify = async () => {
-    if (!collegeEmail || !detectedCollege) {
-      alert("Please enter a valid college email first!");
+  const handleAuthenticate = async () => {
+    if (!collegeEmail.trim() || !detectedCollege) {
+      alert(
+        "Use a recognized college email domain so we can detect your institution.",
+      );
       return;
     }
-    setVerifying(true);
-    await new Promise((res) => setTimeout(res, 2000));
-    setVerifying(false);
-    setVerified(true);
-    setPasswordSent(true);
+    if (!password || password !== confirmPassword) {
+      alert("Passwords must match.");
+      return;
+    }
+    if (password.length < 6) {
+      alert("Password must be at least 6 characters.");
+      return;
+    }
+    const auth = getFirebaseAuth();
+    setAuthenticating(true);
+    try {
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        collegeEmail.trim(),
+        password,
+      );
+      try {
+        await sendEmailVerification(cred.user);
+        alert(afterVerificationEmailSent(collegeEmail.trim()));
+      } catch (verifyErr) {
+        alert(
+          `Your account was created, but the verification email could not be sent:\n\n${formatFirebaseAuthError(verifyErr)}`,
+        );
+      }
+    } catch (e) {
+      if (isFirebaseAuthCode(e, "auth/email-already-in-use")) {
+        try {
+          const cred = await signInWithEmailAndPassword(
+            auth,
+            collegeEmail.trim(),
+            password,
+          );
+          try {
+            if (!cred.user.emailVerified) {
+              await sendEmailVerification(cred.user);
+              alert(afterVerificationEmailSent(collegeEmail.trim()));
+            } else {
+              alert(
+                "This email is already verified. Use Sign in below to open your account.",
+              );
+            }
+          } catch (verifyErr) {
+            alert(
+              `Could not send verification email:\n\n${formatFirebaseAuthError(verifyErr)}`,
+            );
+          }
+        } catch (signInErr) {
+          alert(formatFirebaseAuthError(signInErr));
+        }
+      } else {
+        alert(formatFirebaseAuthError(e));
+      }
+    } finally {
+      setAuthenticating(false);
+    }
+  };
+
+  const handleResendEmail = async () => {
+    if (!authUser) return;
+    try {
+      await sendEmailVerification(authUser);
+      alert(afterVerificationEmailSent(authUser.email ?? ""));
+    } catch (e) {
+      alert(formatFirebaseAuthError(e));
+    }
+  };
+
+  const handleRefreshEmail = async () => {
+    if (!authUser) return;
+    setRefreshingEmail(true);
+    try {
+      await reload(authUser);
+      bump();
+    } finally {
+      setRefreshingEmail(false);
+    }
+  };
+
+  const handleSignOutFirebase = async () => {
+    await signOut(getFirebaseAuth());
+    setPassword("");
+    setConfirmPassword("");
   };
 
   const handleIdUpload = (side: "front" | "back", file: File) => {
     const url = URL.createObjectURL(file);
-    if (side === "front") { setIdFrontPreview(url); setIdFrontFile(file); }
-    else { setIdBackPreview(url); setIdBackFile(file); }
+    if (side === "front") {
+      setIdFrontPreview(url);
+      setIdFrontFile(file);
+    } else {
+      setIdBackPreview(url);
+      setIdBackFile(file);
+    }
   };
 
-  const handleSignup = () => {
-    if (!name || !gender || !collegeEmail || !detectedCollege || !branch || !phone || !state || !jeeMainsPercentile || !jeeMainsRank || !bio || !skills || !password) {
-      alert("Please fill all required fields!");
+  const handleSignup = async () => {
+    const selectedPreferredTimezones = preferredTimezones
+      .filter((slot) => slot.from && slot.to && slot.from !== slot.to)
+      .map((slot) => `${slot.from} - ${slot.to}`);
+
+    if (
+      !name ||
+      !gender ||
+      !collegeEmail ||
+      !detectedCollege ||
+      !branch ||
+      !phone ||
+      !state ||
+      !jeeMainsPercentile ||
+      !jeeMainsRank ||
+      !bio ||
+      !skills ||
+      !sessionPrice ||
+      selectedPreferredTimezones.length < 4
+    ) {
+      alert(
+        "Please fill all required fields and select at least 4 preferred time slots.",
+      );
       return;
     }
-    if (!verified) { alert("Please verify your college email first!"); return; }
-    if (!idFrontFile || !idBackFile) { alert("Please upload both sides of your college ID!"); return; }
-    if (password !== confirmPassword) { alert("Passwords do not match!"); return; }
-    console.log("Advisor signing up:", { name, gender, collegeEmail, detectedCollege, branch, phone, personalEmail, state, jeeMainsPercentile, jeeMainsRank, jeeAdvancedRank, bio, skills, achievements, languages, sessionPrice });
-    // ✅ Redirect to advisor dashboard
-    navigate({ to: "/advisor/dashboard" });
+    const auth = getFirebaseAuth();
+    const u = auth.currentUser;
+    if (!u) {
+      alert("Tap Authenticate first (college email and password above).");
+      return;
+    }
+    await reload(u);
+    if (!u.emailVerified) {
+      alert(
+        "Open the link in the verification email, then tap Refresh email status.",
+      );
+      return;
+    }
+    if (!password || password !== confirmPassword) {
+      alert(
+        "Re-enter your password (and confirmation) to verify with Firebase before saving your profile.",
+      );
+      return;
+    }
+    if (password.length < 6) {
+      alert("Password must be at least 6 characters.");
+      return;
+    }
+    if (!idFrontFile || !idBackFile) {
+      alert("Please upload both sides of your college ID!");
+      return;
+    }
+    if (languages.includes(OTHER_LANGUAGE_LABEL) && !languageOther.trim()) {
+      alert('Please specify your language(s) when "Other" is selected.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await finalizeFirebaseSignup(collegeEmail.trim(), password, name);
+      const after = getFirebaseAuth().currentUser;
+      if (!after) {
+        alert("Signed out unexpectedly. Sign in again and try once more.");
+        return;
+      }
+      const payload: Record<string, unknown> = {
+        name,
+        gender,
+        collegeEmail: collegeEmail.trim(),
+        detectedCollege,
+        branch,
+        phone,
+        state,
+        jeeMainsPercentile,
+        jeeMainsRank,
+        bio,
+        skills,
+        sessionPrice,
+        collegeIdAcknowledged: true,
+        languages,
+        preferredTimezones: selectedPreferredTimezones,
+      };
+      const pe = personalEmail.trim();
+      if (pe) payload.personalEmail = pe;
+      const ja = jeeAdvancedRank.trim();
+      if (ja) payload.jeeAdvancedRank = ja;
+      const ach = achievements.trim();
+      if (ach) payload.achievements = ach;
+      const lo = languageOther.trim();
+      if (lo) payload.languageOther = lo;
+
+      const token = await after.getIdToken(true);
+      const saved = await registerAdvisor(token, payload);
+      navigate({
+        to: "/advisor/dashboard",
+        state: { profileSavedId: saved.id } as Record<string, unknown>,
+      });
+    } catch (e) {
+      if (e instanceof FirebaseError) {
+        alert(formatFirebaseAuthError(e));
+      } else if (e instanceof Error) {
+        alert(e.message);
+      } else {
+        alert(
+          "Could not save your profile. Is the API running (pnpm api on port 8001)?",
+        );
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
+  const emailOk = !!authUser?.emailVerified;
+  const passwordLockedUntilVerified = !!authUser && !emailOk;
+
   return (
-    <AuthShell title="Advisor Sign Up" subtitle="Create your advisor account to start listing sessions.">
+    <AuthShell
+      title="Advisor Sign Up"
+      subtitle="Create your advisor account to start listing sessions."
+    >
       <div className="flex flex-col gap-4">
+        <p className="text-xs text-muted-foreground rounded-lg border border-border/60 px-3 py-2">
+          Sign-in uses{" "}
+          <strong className="text-foreground">Firebase Authentication</strong>{" "}
+          with your <strong className="text-foreground">college email</strong>.
+          <strong className="text-foreground"> Email verification</strong> is
+          handled by Google.
+        </p>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Full Name <span className="text-neon-orange">•</span></label>
-          <input type="text" placeholder="Your full name" value={name} onChange={(e) => setName(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
+          <label className="text-sm text-muted-foreground">
+            Full Name <span className="text-neon-orange">•</span>
+          </label>
+          <input
+            type="text"
+            placeholder="Your full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+          />
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Gender <span className="text-neon-orange">•</span></label>
-          <select value={gender} onChange={(e) => setGender(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors cursor-pointer">
+          <label className="text-sm text-muted-foreground">
+            Gender <span className="text-neon-orange">•</span>
+          </label>
+          <select
+            value={gender}
+            onChange={(e) => setGender(e.target.value)}
+            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors cursor-pointer"
+          >
             <option value="">Select gender</option>
             <option value="male">Male</option>
             <option value="female">Female</option>
@@ -206,172 +569,471 @@ export default function AdvisorSignupPage() {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">College Email <span className="text-neon-orange">•</span></label>
-          <div className="flex gap-2">
-            <input type="email" placeholder="you@college.edu.in" value={collegeEmail}
-              onChange={handleEmailChange} disabled={verified}
-              className={`flex-1 bg-background border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none transition-colors ${
-                verified ? "border-green-500 text-green-400 cursor-not-allowed opacity-70"
-                : detectedCollege ? "border-neon-orange focus:border-neon-orange"
-                : "border-border focus:border-neon-orange"}`} />
-            {!verified && (
-              <button type="button" onClick={handleVerify} disabled={!detectedCollege || verifying}
-                className="inline-flex items-center gap-2 bg-neon-orange hover:bg-neon-orange/80 disabled:opacity-40 disabled:cursor-not-allowed text-black font-semibold rounded-xl px-4 py-2 text-sm transition-all duration-300">
-                {verifying ? <><Loader size={14} className="animate-spin" />Sending...</> : <><Mail size={14} />Verify</>}
+          <label className="text-sm text-muted-foreground">
+            College Email (Firebase login){" "}
+            <span className="text-neon-orange">•</span>
+          </label>
+          <input
+            type="email"
+            placeholder="you@college.edu.in"
+            value={collegeEmail}
+            onChange={handleEmailChange}
+            disabled={!!authUser}
+            className={`bg-background border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none transition-colors ${
+              authUser
+                ? "border-green-500/60 cursor-not-allowed opacity-80"
+                : detectedCollege
+                  ? "border-neon-orange focus:border-neon-orange"
+                  : "border-border focus:border-neon-orange"
+            }`}
+          />
+          {!authUser && !detectedCollege && collegeEmail.includes("@") ? (
+            <p className="text-xs text-amber-500/90 mt-1">
+              We could not detect a college from this domain. Try your official
+              institute email.
+            </p>
+          ) : null}
+        </div>
+
+        <PasswordField
+          id="advisor-signup-password"
+          label={
+            <>
+              Password (Firebase) <span className="text-neon-orange">•</span>
+            </>
+          }
+          name="password"
+          autoComplete="new-password"
+          placeholder="At least 6 characters"
+          value={password}
+          onChange={setPassword}
+          disabled={passwordLockedUntilVerified}
+          variant="orange"
+        />
+
+        <PasswordField
+          id="advisor-signup-password-confirm"
+          label={
+            <>
+              Confirm password <span className="text-neon-orange">•</span>
+            </>
+          }
+          name="confirmPassword"
+          autoComplete="new-password"
+          placeholder="Re-enter password"
+          value={confirmPassword}
+          onChange={setConfirmPassword}
+          disabled={passwordLockedUntilVerified}
+          variant="orange"
+        />
+
+        {authUser && emailOk ? (
+          <p className="text-xs text-muted-foreground rounded-lg border border-border/60 px-3 py-2">
+            After email verification, re-enter your password here. When you tap{" "}
+            <strong className="text-foreground">Create account</strong>, we
+            confirm it with Firebase, set your display name, then save your
+            profile to our database.
+          </p>
+        ) : null}
+
+        {!authUser ? (
+          <Button
+            type="button"
+            onClick={handleAuthenticate}
+            disabled={authenticating || !detectedCollege}
+            className="w-full bg-neon-orange/90 hover:bg-neon-orange text-background font-semibold rounded-xl"
+          >
+            {authenticating ? (
+              <Loader size={16} className="mr-2 animate-spin" />
+            ) : (
+              <Mail size={16} className="mr-2" />
+            )}
+            {authenticating ? "Authenticating…" : "Authenticate"}
+          </Button>
+        ) : (
+          <div className="flex flex-col gap-2 rounded-xl border border-border/80 p-3">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Email verification</span>
+              {emailOk ? (
+                <span className="inline-flex items-center gap-1 text-green-500">
+                  <CheckCircle size={16} /> Verified
+                </span>
+              ) : (
+                <span className="text-amber-500/90">
+                  Pending — check your inbox
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleResendEmail}
+                className="text-xs underline text-neon-orange"
+              >
+                Resend verification email
               </button>
-            )}
-            {verified && (
-              <div className="inline-flex items-center gap-1 text-green-500 text-sm px-3">
-                <CheckCircle size={16} /> Verified
-              </div>
-            )}
+              <button
+                type="button"
+                onClick={handleRefreshEmail}
+                disabled={refreshingEmail}
+                className="text-xs underline text-neon-orange disabled:opacity-50"
+              >
+                {refreshingEmail ? "Refreshing…" : "Refresh email status"}
+              </button>
+              <button
+                type="button"
+                onClick={handleSignOutFirebase}
+                className="text-xs underline text-muted-foreground"
+              >
+                Use a different email
+              </button>
+            </div>
           </div>
-          {!verified && !passwordSent && (
-            <p className="text-xs text-muted-foreground mt-1">📧 Click Verify — CollegeConnect will send your password to this email</p>
-          )}
-          {verified && (
-            <p className="text-xs text-green-500 mt-1">✅ Email verified! Password has been sent to {collegeEmail}</p>
-          )}
-        </div>
+        )}
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">College <span className="text-neon-orange">•</span></label>
+          <label className="text-sm text-muted-foreground">
+            College <span className="text-neon-orange">•</span>
+          </label>
           <div className="relative">
-            <input type="text" placeholder="Auto-detected from your email" value={detectedCollege} readOnly
+            <input
+              type="text"
+              placeholder="Auto-detected from your email"
+              value={detectedCollege}
+              readOnly
               className={`w-full bg-background border rounded-xl px-4 py-2 text-sm transition-colors cursor-not-allowed ${
-                detectedCollege ? "border-green-500 text-green-400" : "border-border text-muted-foreground"}`} />
-            {detectedCollege && <CheckCircle size={16} className="absolute right-3 top-2.5 text-green-500" />}
+                detectedCollege
+                  ? "border-green-500 text-green-400"
+                  : "border-border text-muted-foreground"
+              }`}
+            />
+            {detectedCollege && (
+              <CheckCircle
+                size={16}
+                className="absolute right-3 top-2.5 text-green-500"
+              />
+            )}
           </div>
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Branch <span className="text-neon-orange">•</span></label>
-          <input type="text" placeholder="e.g. Computer Science, Petroleum Engineering" value={branch}
+          <label className="text-sm text-muted-foreground">
+            Branch <span className="text-neon-orange">•</span>
+          </label>
+          <input
+            type="text"
+            placeholder="e.g. Computer Science, Petroleum Engineering"
+            value={branch}
             onChange={(e) => setBranch(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
+            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+          />
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Phone Number <span className="text-neon-orange">•</span></label>
-          <input type="tel" placeholder="+91 XXXXX XXXXX" value={phone} onChange={(e) => setPhone(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
+          <label
+            htmlFor="advisor-signup-mobile"
+            className="text-sm text-muted-foreground"
+          >
+            Mobile number <span className="text-neon-orange">•</span>
+          </label>
+          <input
+            id="advisor-signup-mobile"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel-national"
+            placeholder="10-digit mobile number"
+            value={phone}
+            onChange={(e) =>
+              setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))
+            }
+            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+          />
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Personal Email <span className="text-xs">(optional)</span></label>
-          <input type="email" placeholder="you@gmail.com" value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
+          <label className="text-sm text-muted-foreground">
+            Personal Email <span className="text-xs">(optional)</span>
+          </label>
+          <input
+            type="email"
+            placeholder="you@gmail.com"
+            value={personalEmail}
+            onChange={(e) => setPersonalEmail(e.target.value)}
+            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+          />
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">State <span className="text-neon-orange">•</span></label>
-          <select value={state} onChange={(e) => setState(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors cursor-pointer">
+          <label className="text-sm text-muted-foreground">
+            State <span className="text-neon-orange">•</span>
+          </label>
+          <select
+            value={state}
+            onChange={(e) => setState(e.target.value)}
+            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors cursor-pointer"
+          >
             <option value="">Select your state</option>
-            {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+            {INDIAN_STATES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
           </select>
         </div>
 
         <div className="flex flex-col gap-2">
-          <label className="text-sm text-muted-foreground">JEE Mains <span className="text-neon-orange">•</span></label>
+          <label className="text-sm text-muted-foreground">
+            JEE Mains <span className="text-neon-orange">•</span>
+          </label>
           <div className="flex gap-2">
-            <input type="number" placeholder="Percentile (e.g. 98.5)" value={jeeMainsPercentile}
+            <input
+              type="number"
+              placeholder="Percentile (e.g. 98.5)"
+              value={jeeMainsPercentile}
               onChange={(e) => setJeeMainsPercentile(e.target.value)}
-              className="flex-1 bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
-            <input type="number" placeholder="Rank" value={jeeMainsRank} onChange={(e) => setJeeMainsRank(e.target.value)}
-              className="flex-1 bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
+              className="flex-1 bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+            />
+            <input
+              type="number"
+              placeholder="Rank"
+              value={jeeMainsRank}
+              onChange={(e) => setJeeMainsRank(e.target.value)}
+              className="flex-1 bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+            />
           </div>
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">JEE Advanced Rank <span className="text-xs">(optional)</span></label>
-          <input type="number" placeholder="Your JEE Advanced rank" value={jeeAdvancedRank}
+          <label className="text-sm text-muted-foreground">
+            JEE Advanced Rank <span className="text-xs">(optional)</span>
+          </label>
+          <input
+            type="number"
+            placeholder="Optional — e.g. rank, or leave blank"
+            value={jeeAdvancedRank}
             onChange={(e) => setJeeAdvancedRank(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
+            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+          />
+          <p className="text-xs text-muted-foreground">
+            Not attempted or no rank yet? Leave empty — you can still create
+            your account.
+          </p>
         </div>
 
         {/* College ID Upload */}
         <div className="border-t border-border/50 pt-4 mt-2">
-          <p className="text-sm font-semibold text-foreground mb-1">🪪 College ID Card <span className="text-neon-orange">•</span></p>
-          <p className="text-xs text-muted-foreground mb-4">Upload both sides of your college ID for verification.</p>
+          <p className="text-sm font-semibold text-foreground mb-1">
+            🪪 College ID Card <span className="text-neon-orange">•</span>
+          </p>
+          <p className="text-xs text-muted-foreground mb-4">
+            Upload both sides of your college ID for verification.
+          </p>
           <div className="flex gap-3">
-            <ImageUploadBox label="Front Side" preview={idFrontPreview}
+            <ImageUploadBox
+              label="Front Side"
+              preview={idFrontPreview}
               onUpload={(file) => handleIdUpload("front", file)}
-              onRemove={() => { setIdFrontPreview(null); setIdFrontFile(null); }} />
-            <ImageUploadBox label="Back Side" preview={idBackPreview}
+              onRemove={() => {
+                setIdFrontPreview(null);
+                setIdFrontFile(null);
+              }}
+            />
+            <ImageUploadBox
+              label="Back Side"
+              preview={idBackPreview}
               onUpload={(file) => handleIdUpload("back", file)}
-              onRemove={() => { setIdBackPreview(null); setIdBackFile(null); }} />
+              onRemove={() => {
+                setIdBackPreview(null);
+                setIdBackFile(null);
+              }}
+            />
           </div>
-          <p className="text-xs text-muted-foreground mt-2">🔒 Your ID is only used for verification and will not be shared publicly.</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            🔒 ID images are checked in the app only; image files are not saved
+            to our database (add cloud storage later if you need archival).
+          </p>
         </div>
 
         {/* Bio Section */}
         <div className="border-t border-border/50 pt-4 mt-2">
-          <p className="text-sm font-semibold text-foreground mb-4">📝 Your Profile Info</p>
+          <p className="text-sm font-semibold text-foreground mb-4">
+            📝 Your Profile Info
+          </p>
 
           <div className="flex flex-col gap-1 mb-4">
-            <label className="text-sm text-muted-foreground">Bio <span className="text-neon-orange">•</span></label>
-            <textarea placeholder="Tell students about yourself..." value={bio} onChange={(e) => setBio(e.target.value)}
-              rows={4} maxLength={500}
-              className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors resize-none" />
-            <p className="text-xs text-muted-foreground text-right">{bio.length}/500</p>
+            <label className="text-sm text-muted-foreground">
+              Bio <span className="text-neon-orange">•</span>
+            </label>
+            <textarea
+              placeholder="Tell students about yourself..."
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              rows={4}
+              maxLength={500}
+              className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors resize-none"
+            />
+            <p className="text-xs text-muted-foreground text-right">
+              {bio.length}/500
+            </p>
           </div>
 
           <div className="flex flex-col gap-1 mb-4">
-            <label className="text-sm text-muted-foreground">Skills <span className="text-neon-orange">•</span></label>
-            <input type="text" placeholder="e.g. Coding, Data Science, CAD, Public Speaking"
-              value={skills} onChange={(e) => setSkills(e.target.value)}
-              className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
-            <p className="text-xs text-muted-foreground mt-1">Separate skills with commas</p>
+            <label className="text-sm text-muted-foreground">
+              Skills <span className="text-neon-orange">•</span>
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Coding, Data Science, CAD, Public Speaking"
+              value={skills}
+              onChange={(e) => setSkills(e.target.value)}
+              className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Separate skills with commas
+            </p>
           </div>
 
           <div className="flex flex-col gap-1 mb-4">
-            <label className="text-sm text-muted-foreground">Achievements <span className="text-xs">(optional)</span></label>
-            <textarea placeholder="e.g. Smart India Hackathon winner, Dean's List..."
-              value={achievements} onChange={(e) => setAchievements(e.target.value)} rows={3}
-              className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors resize-none" />
+            <label className="text-sm text-muted-foreground">
+              Achievements <span className="text-xs">(optional)</span>
+            </label>
+            <textarea
+              placeholder="e.g. Smart India Hackathon winner, Dean's List..."
+              value={achievements}
+              onChange={(e) => setAchievements(e.target.value)}
+              rows={3}
+              className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors resize-none"
+            />
           </div>
 
-          <div className="flex flex-col gap-1 mb-4">
-            <label className="text-sm text-muted-foreground">Languages I speak <span className="text-xs">(optional)</span></label>
-            <input type="text" placeholder="e.g. Hindi, English, Telugu"
-              value={languages} onChange={(e) => setLanguages(e.target.value)}
-              className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
+          <div className="mb-4">
+            <LanguageMultiSelect
+              variant="orange"
+              label="Languages I speak"
+              optionalHint="(optional)"
+              value={languages}
+              onChange={setLanguages}
+              otherDetail={languageOther}
+              onOtherDetailChange={setLanguageOther}
+            />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-sm text-muted-foreground">Session Price (₹) <span className="text-neon-orange">•</span></label>
+            <label className="text-sm text-muted-foreground">
+              Session Price (₹) <span className="text-neon-orange">•</span>
+            </label>
             <div className="relative">
-              <span className="absolute left-4 top-2 text-sm text-muted-foreground">₹</span>
-              <input type="number" placeholder="e.g. 499" value={sessionPrice} onChange={(e) => setSessionPrice(e.target.value)}
-                className="w-full bg-background border border-border rounded-xl pl-8 pr-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
+              <span className="absolute left-4 top-2 text-sm text-muted-foreground">
+                ₹
+              </span>
+              <input
+                type="number"
+                placeholder="e.g. 499"
+                value={sessionPrice}
+                onChange={(e) => setSessionPrice(e.target.value)}
+                className="w-full bg-background border border-border rounded-xl pl-8 pr-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+              />
             </div>
-            <p className="text-xs text-muted-foreground mt-1">How much you charge per session</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              How much you charge per session
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1 mt-4">
+            <label className="text-sm text-muted-foreground">
+              Preferred Timezones / Time Slots{" "}
+              <span className="text-neon-orange">•</span>
+            </label>
+            <div className="grid grid-cols-1 gap-2">
+              {preferredTimezones.map((slot, index) => (
+                <div key={`timezone-slot-${index}`} className="grid grid-cols-2 gap-2">
+                  <select
+                    value={slot.from}
+                    onChange={(e) =>
+                      setPreferredTimezones((prev) =>
+                        prev.map((item, i) =>
+                          i === index ? { ...item, from: e.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors cursor-pointer"
+                  >
+                    <option value="">From</option>
+                    {HOURLY_TIME_OPTIONS.map((time) => (
+                      <option key={`from-${time}`} value={time}>
+                        {time}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={slot.to}
+                    onChange={(e) =>
+                      setPreferredTimezones((prev) =>
+                        prev.map((item, i) =>
+                          i === index ? { ...item, to: e.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors cursor-pointer"
+                  >
+                    <option value="">To</option>
+                    {HOURLY_TIME_OPTIONS.map((time) => (
+                      <option key={`to-${time}`} value={time}>
+                        {time}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 mt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setPreferredTimezones((prev) => [...prev, { from: "", to: "" }])
+                }
+                className="text-xs underline text-neon-orange"
+              >
+                + Add another slot
+              </button>
+              {preferredTimezones.length > 4 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPreferredTimezones((prev) =>
+                      prev.length > 4 ? prev.slice(0, -1) : prev,
+                    )
+                  }
+                  className="text-xs underline text-muted-foreground"
+                >
+                  Remove last slot
+                </button>
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Select from/to time for each slot (1-hour options). Minimum 4 slots required.
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Password <span className="text-neon-orange">•</span></label>
-          <input type="password" placeholder="Enter password sent by CollegeConnect"
-            value={password} onChange={(e) => setPassword(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted-foreground">Confirm Password <span className="text-neon-orange">•</span></label>
-          <input type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors" />
-        </div>
-
         <div className="mt-2">
-          <Button onClick={handleSignup} disabled={!verified}
-            className="w-full bg-neon-orange hover:bg-neon-orange/90 text-background font-semibold rounded-xl px-5 glow-orange transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
-            <UserPlus size={16} className="mr-2" />
-            Create Account
+          <Button
+            onClick={handleSignup}
+            disabled={!authUser || !emailOk || submitting}
+            className="w-full bg-neon-orange hover:bg-neon-orange/90 text-background font-semibold rounded-xl px-5 glow-orange transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {submitting ? (
+              <Loader size={16} className="mr-2 animate-spin" />
+            ) : (
+              <UserPlus size={16} className="mr-2" />
+            )}
+            {submitting ? "Creating account…" : "Create account"}
           </Button>
-          {!verified && (
-            <p className="text-xs text-muted-foreground text-center mt-2">Please verify your college email to continue</p>
-          )}
+          {authUser && !emailOk ? (
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              Verify your email (link in inbox), then tap Refresh email status.
+            </p>
+          ) : null}
         </div>
       </div>
     </AuthShell>

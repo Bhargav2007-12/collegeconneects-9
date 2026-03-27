@@ -12,6 +12,9 @@ process.env.II_URL = process.env.II_URL || ii_url;
 process.env.STORAGE_GATEWAY_URL =
   process.env.STORAGE_GATEWAY_URL || "https://blob.caffeine.ai";
 
+// FastAPI port used by local backend; override with API_PORT if needed.
+const FASTAPI_PORT = process.env.API_PORT || "8000";
+
 export default defineConfig({
   logLevel: "error",
   build: {
@@ -31,6 +34,23 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // FastAPI (MongoDB sign-up) — match before generic /api (IC replica)
+      "/api/students": {
+        target: `http://127.0.0.1:${FASTAPI_PORT}`,
+        changeOrigin: true,
+      },
+      "/api/advisors": {
+        target: `http://127.0.0.1:${FASTAPI_PORT}`,
+        changeOrigin: true,
+      },
+      "/api/meta": {
+        target: `http://127.0.0.1:${FASTAPI_PORT}`,
+        changeOrigin: true,
+      },
+      "/api/auth": {
+        target: `http://127.0.0.1:${FASTAPI_PORT}`,
+        changeOrigin: true,
+      },
       "/api": {
         target: "http://127.0.0.1:4943",
         changeOrigin: true,

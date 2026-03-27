@@ -1,8 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReactDOM from "react-dom/client";
-import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
+import { getFirebaseAnalytics, getFirebaseApp } from "./lib/firebase";
+import { FirebaseAuthShell } from "./hooks/useInternetIdentity";
 import { AppRouterProvider } from "./router";
 import "../index.css";
+
+getFirebaseApp();
+void getFirebaseAnalytics();
 
 BigInt.prototype.toJSON = function () {
   return this.toString();
@@ -16,10 +20,11 @@ declare global {
 
 const queryClient = new QueryClient();
 
+// User sign-in/sign-up: Firebase Auth only. FirebaseAuthShell avoids loading Internet Identity (IC).
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
-    <InternetIdentityProvider>
+    <FirebaseAuthShell>
       <AppRouterProvider />
-    </InternetIdentityProvider>
+    </FirebaseAuthShell>
   </QueryClientProvider>,
 );

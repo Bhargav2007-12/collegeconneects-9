@@ -97,7 +97,7 @@ function assertProviderPresent(
 ): asserts context is ProviderValue {
   if (!context) {
     throw new Error(
-      "InternetIdentityProvider is not present. Wrap your component tree with it.",
+      "Wrap your component tree with InternetIdentityProvider or FirebaseAuthShell (see main.tsx).",
     );
   }
 }
@@ -125,6 +125,35 @@ export const useInternetIdentity = (): InternetIdentityContext => {
  * </InternetIdentityProvider>
  * ```
  */
+/**
+ * Shell for apps where **Firebase Authentication** handles all user sign-in/sign-up.
+ * Does not load Internet Identity / AuthClient; `identity` stays undefined so the
+ * canister actor is anonymous (see `useActor`).
+ */
+export function FirebaseAuthShell({ children }: PropsWithChildren) {
+  const login = useCallback(() => {}, []);
+  const clear = useCallback(() => {}, []);
+  const value = useMemo<ProviderValue>(
+    () => ({
+      identity: undefined,
+      login,
+      clear,
+      loginStatus: "idle",
+      isInitializing: false,
+      isLoginIdle: true,
+      isLoggingIn: false,
+      isLoginSuccess: false,
+      isLoginError: false,
+      loginError: undefined,
+    }),
+    [login, clear],
+  );
+  return createElement(InternetIdentityReactContext.Provider, {
+    value,
+    children,
+  });
+}
+
 export function InternetIdentityProvider({
   children,
   createOptions,
