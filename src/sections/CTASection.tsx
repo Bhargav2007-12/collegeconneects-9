@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link } from "@tanstack/react-router";
-import { useEffect } from "react";
 
 
 const COLLEGES_WITH_BRANCHES: Record<string, string[]> = {
@@ -39,9 +38,6 @@ export default function CTASection() {
   const [searched, setSearched] = useState(false);
   const [showStudentBlock, setShowStudentBlock] = useState(false);
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
-  useEffect(() => {
-  document.title = "Find Your Advisor — CollegeConnect";
-}, []);
 
   // Inquiry form states
   const [inquiryName, setInquiryName] = useState("");

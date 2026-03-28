@@ -41,10 +41,6 @@ export default function StudentAdvisorDetailPage() {
   const [selectedSlot, setSelectedSlot] = useState("");
 
   useEffect(() => {
-    document.title = "Advisor profile — CollegeConnect";
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);

@@ -11,9 +11,10 @@ import {
 } from "@/lib/restApi";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { useNavigate } from "@tanstack/react-router";
-import { BookOpen, User, Calendar, Search, ChevronDown, Star, ArrowRight } from "lucide-react";
+import { BookOpen, User, Calendar, Search, ChevronDown, Star, ArrowRight, Gift } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect } from "react";
+import StudentReferEarnPage from "./StudentReferEarnPage";
 
 const COLLEGES = ["All Colleges", "RGIPT", "IIT Delhi", "IIT Bombay", "NIT Trichy", "BITS Pilani"];
 const BRANCHES = ["All Branches", "Computer Science", "Petroleum Engineering", "Information Technology", "Electronics Engineering", "Mathematics and Computing"];
@@ -30,6 +31,7 @@ const avatarColors = [
 const TABS = [
   { id: "advisors", label: "Find Advisors", icon: Search },
   { id: "sessions", label: "My Sessions", icon: Calendar },
+  { id: "refer", label: "Refer & Earn", icon: Gift },
   { id: "profile", label: "My Profile", icon: User },
 ];
 
@@ -208,16 +210,16 @@ export default function StudentDashboard() {
   const mySessionBookings = sessionBookings; // backend already filters by student
 
   return (
-    <div className="min-h-screen bg-background pt-20 px-4 sm:px-6">
+    <div className="min-h-screen bg-background pt-28 sm:pt-32 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto">
 
-        {/* Welcome Header */}
+        {/* Welcome header — brand lives in navbar */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          className="mb-8 w-full min-w-0"
         >
-          <h1 className="text-3xl font-display font-bold text-foreground">
+          <h1 className="text-3xl font-display font-bold text-foreground break-words">
             Welcome back, <span className="gradient-text-orange">{welcomeName}</span> 👋
           </h1>
           <p className="text-muted-foreground mt-1">Find your perfect college advisor today</p>
@@ -492,6 +494,13 @@ export default function StudentDashboard() {
                 ))}
               </div>
             )}
+          </motion.div>
+        )}
+
+        {/* REFER TAB */}
+        {activeTab === "refer" && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <StudentReferEarnPage />
           </motion.div>
         )}
 

@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
+import { BrandLogo } from "@/components/BrandLogo";
 
 export function AuthShell({
   title,
@@ -18,15 +19,22 @@ export function AuthShell({
         className="absolute inset-0 opacity-[0.04] pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse 70% 55% at 50% 0%, oklch(0.78 0.15 175), transparent)",
+            "radial-gradient(ellipse 70% 55% at 18% 0%, oklch(0.78 0.15 175), transparent)",
         }}
       />
 
       <div className="max-w-3xl mx-auto">
-        <div className="mb-6">
+        <div className="mb-6 flex flex-row items-start justify-between gap-4 w-full">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex shrink-0"
+            aria-label="CollegeConnect home"
+          >
+            <BrandLogo size="lg" align="start" />
+          </Link>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0 pt-0.5"
           >
             <ArrowLeft size={16} />
             Back to home

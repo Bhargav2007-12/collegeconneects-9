@@ -23,5 +23,14 @@ class Settings(BaseSettings):
     # e.g. "CollegeConnect <bookings@yourdomain.com>" (must be a verified sender in Resend)
     resend_from: str = ""
 
+    # AWS S3 — college ID card uploads (presigned PUT from browser)
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region: str = ""
+    s3_bucket: str = ""
+    # Object key prefix, no leading/trailing slashes
+    s3_college_ids_prefix: str = "college-ids"
+    s3_profile_pictures_prefix: str = "profile-pictures"
+
 
 settings = Settings()

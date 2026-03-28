@@ -1,5 +1,5 @@
-import { GraduationCap } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { BrandLogo } from "@/components/BrandLogo";
 
 export default function Footer() {
   const year = new Date().getFullYear();
@@ -9,11 +9,13 @@ export default function Footer() {
       <div className="max-w-6xl mx-auto">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           {/* Logo */}
-          <div className="flex items-center gap-2 text-lg font-display font-bold">
-            <GraduationCap size={20} className="text-neon-orange" />
-            <span className="text-foreground">College</span>
-            <span className="gradient-text-orange">Connect</span>
-          </div>
+          <Link
+            to="/"
+            className="inline-flex transition-opacity hover:opacity-95"
+            aria-label="CollegeConnect home"
+          >
+            <BrandLogo size="sm" />
+          </Link>
 
           {/* Links */}
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground">

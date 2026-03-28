@@ -41,6 +41,17 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/meta/s3")
+async def meta_s3() -> dict[str, str | bool]:
+    """Non-secret check that college-ID upload env is loaded (browser uploads still need bucket CORS)."""
+    return {
+        "configured": s3_configured(),
+        "bucket": settings.s3_bucket if s3_configured() else "",
+        "region": settings.aws_region if s3_configured() else "",
+        "prefix": (settings.s3_college_ids_prefix or "college-ids").strip().strip("/"),
+    }
+
+
 @app.get("/api/meta/db-stats")
 async def db_stats() -> dict[str, str | int]:
     """Use this to confirm which database name the API uses and document counts (Compass must use the same cluster + database)."""

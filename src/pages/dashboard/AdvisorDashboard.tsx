@@ -12,12 +12,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { User, Calendar, IndianRupee, Star, TrendingUp, Users, Wallet, ArrowUpRight, History } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect } from "react";
+import AdvisorReferEarnPage from "./AdvisorReferEarnPage";
 
 
 const TABS = [
   { id: "overview", label: "Overview", icon: TrendingUp },
   { id: "sessions", label: "My Sessions", icon: Calendar },
   { id: "earnings", label: "Earnings", icon: IndianRupee },
+  { id: "refer", label: "Refer & Earn", icon: Gift },
   { id: "profile", label: "My Profile", icon: User },
 ];
 
@@ -193,16 +195,16 @@ export default function AdvisorDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-background pt-20 px-4 sm:px-6">
+    <div className="min-h-screen bg-background pt-28 sm:pt-32 px-4 sm:px-6">
       <div className="max-w-6xl mx-auto">
 
-        {/* Welcome Header */}
+        {/* Welcome header — brand lives in navbar; full width avoids overlap with tall stacked logo */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          className="mb-8 w-full min-w-0"
         >
-          <h1 className="text-3xl font-display font-bold text-foreground">
+          <h1 className="text-3xl font-display font-bold text-foreground break-words">
             Welcome back, <span className="gradient-text-orange">{welcomeName}</span> 👋
           </h1>
           <p className="text-muted-foreground mt-1">Manage your sessions and connect with students</p>
@@ -458,6 +460,13 @@ export default function AdvisorDashboard() {
                 </p>
               </div>
             </div>
+          </motion.div>
+        )}
+
+        {/* REFER TAB */}
+        {activeTab === "refer" && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <AdvisorReferEarnPage />
           </motion.div>
         )}
 

@@ -16,7 +16,8 @@ process.env.STORAGE_GATEWAY_URL =
 const FASTAPI_PORT = process.env.API_PORT || "8000";
 
 export default defineConfig({
-  logLevel: "error",
+  // Show URL in terminal; "error" hides the local link and confuses debugging.
+  logLevel: "info",
   build: {
     emptyOutDir: true,
     sourcemap: false,
@@ -33,6 +34,12 @@ export default defineConfig({
     },
   },
   server: {
+    // Listen on all local interfaces so both http://localhost:5173 and http://127.0.0.1:5173 work.
+    // Firebase Auth authorized domains include "localhost" by default, but not "127.0.0.1" — use
+    // localhost for dev sign-in, or add 127.0.0.1 under Authentication → Settings → Authorized domains.
+    host: true,
+    port: 5173,
+    strictPort: false,
     proxy: {
       // FastAPI (MongoDB sign-up) — match before generic /api (IC replica)
       "/api/students": {

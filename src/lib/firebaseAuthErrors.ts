@@ -15,7 +15,7 @@ export function formatFirebaseAuthError(error: unknown): string {
         "This email is already registered. Use Sign in, or reset your password if you forgot it.",
       "auth/invalid-email": "Please enter a valid email address.",
       "auth/invalid-credential":
-        "Email or password is incorrect. If you just signed up, use Sign in instead of signing up again.",
+        "Email or password doesn't match. Check both, or use Forgot password on the sign-in page.",
       "auth/wrong-password":
         "Wrong password. Try again or use Forgot password.",
       "auth/user-not-found":
@@ -44,4 +44,22 @@ export function formatFirebaseAuthError(error: unknown): string {
   }
   if (error instanceof Error) return error.message;
   return "Something went wrong. Please try again.";
+}
+
+/**
+ * When createUser fails with email-already-in-use, we try sign-in. If that fails,
+ * the password usually doesn't match the existing account — use a clearer message than generic invalid-credential.
+ */
+export function formatSignInAfterEmailExistsError(error: unknown): string {
+  if (
+    isFirebaseAuthCode(error, "auth/invalid-credential") ||
+    isFirebaseAuthCode(error, "auth/wrong-password")
+  ) {
+    return (
+      "This email is already registered, but the password didn't work. " +
+      "Use the exact password you chose at signup, or open Sign in and use Forgot password. " +
+      "If you first signed up with Google (or another provider), use that method to sign in instead of email/password."
+    );
+  }
+  return formatFirebaseAuthError(error);
 }

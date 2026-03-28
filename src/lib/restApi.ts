@@ -82,6 +82,19 @@ export type AdvisorProfileResponse = {
   total_students?: number;
 };
 
+export type ReferralSummaryResponse = {
+  ok: boolean;
+  referral_code: string;
+  attended_sessions: number;
+  can_refer: boolean;
+  total_referrals: number;
+  program_note: string;
+  /** Advisor: cumulative ₹ from 3% on referred advisors’ sessions (up to 5 each). */
+  referral_earnings_inr?: number;
+  /** Student: cumulative ₹ value credited from referrals (discounts / student→advisor rewards). */
+  referral_rewards_inr?: number;
+};
+
 export type StudentProfileResponse = {
   id: string;
   name: string;
@@ -336,7 +349,7 @@ export async function bookAdvisorSession(
 export async function notifyStudentSessionUpdate(
   firebaseIdToken: string,
   payload: {
-    action: "reject" | "change";
+    action: "accept" | "reject" | "change";
     student_email: string;
     student_name: string;
     old_slot: string;

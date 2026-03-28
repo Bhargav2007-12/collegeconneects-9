@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { PasswordField } from "@/components/ui/password-field";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { formatFirebaseAuthError } from "@/lib/firebaseAuthErrors";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   signInWithEmailAndPassword,
@@ -33,7 +34,7 @@ export default function StudentLoginPage() {
       );
       navigate({ to: studentPostAuthPath() });
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Sign-in failed.");
+      alert(formatFirebaseAuthError(e));
     } finally {
       setBusy(false);
     }

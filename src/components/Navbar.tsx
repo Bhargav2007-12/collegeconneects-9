@@ -4,7 +4,7 @@ import { Menu, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { getFirebaseAuth } from "@/lib/firebase";
-import logo from "../assets/logo.png";
+import { BrandLogo } from "@/components/BrandLogo";
 
 const navLinks = [
   { label: "Home", href: "/" },
@@ -12,7 +12,6 @@ const navLinks = [
   { label: "Meet Advisor", href: "#advisors" },
   { label: "Why Us", href: "#why-us" },
   { label: "Testimonials", href: "#testimonials" },
-  { label: "Find Advisor", href: "#cta" },
 ];
 
 export default function Navbar() {
@@ -68,19 +67,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between">
 
         {/* Logo */}
-        <Link
-          to="/"
-          className="flex items-center gap-2 text-xl font-display font-bold tracking-tight"
-          data-ocid="nav.link"
-        >
-          <img
-            src={logo}
-            alt="CollegeConnect Logo"
-            className="w-8 h-8 object-contain"
-          />
-          <span className="text-foreground">College</span>
-          <span className="gradient-text-orange text-glow-orange">Connect</span>
-        </Link>
+        <BrandLogo size="md" asLink />
 
         {/* Desktop Nav */}
         {showTopNav ? (
