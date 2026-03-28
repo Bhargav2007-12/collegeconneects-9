@@ -69,6 +69,8 @@ export type AdvisorProfileResponse = {
   college_email: string;
   detected_college: string;
   branch: string;
+  phone?: string;
+  state?: string;
   bio: string;
   skills: string;
   achievements?: string;
@@ -124,6 +126,56 @@ export type AdvisorPublicDetail = {
   jee_mains_percentile?: string;
   jee_mains_rank?: string;
   jee_advanced_rank?: string;
+};
+
+export type PasswordResetRole = "student" | "advisor";
+
+export async function requestPasswordResetOtp(
+  role: PasswordResetRole,
+  email: string,
+): Promise<{ ok: boolean; expires_in_seconds: number }> {
+  const res = await fetch(url("/api/auth/password-reset/request"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, email }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ ok: boolean; expires_in_seconds: number }>(res);
+}
+
+export async function confirmPasswordResetOtp(
+  role: PasswordResetRole,
+  email: string,
+  otp: string,
+  newPassword: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(url("/api/auth/password-reset/confirm"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, email, otp, new_password: newPassword }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ ok: boolean }>(res);
+}
+
+export type BookingResponse = {
+  id: string;
+  advisor_id: string;
+  student_id: string;
+  advisor_name: string;
+  student_name: string;
+  student_email: string;
+  scheduled_time: string;
+  end_time: string;
+  selected_slot: string;
+  session_price: string;
+  status: "pending" | "confirmed" | "cancelled" | "finalized";
+  google_event_id?: string;
+  meet_link?: string;
+  student_joined: boolean;
+  advisor_joined: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export async function registerStudent(
@@ -281,36 +333,6 @@ export async function bookAdvisorSession(
   }>(res);
 }
 
-export type PasswordResetRole = "student" | "advisor";
-
-export async function requestPasswordResetOtp(
-  role: PasswordResetRole,
-  email: string,
-): Promise<{ ok: boolean; expires_in_seconds: number }> {
-  const res = await fetch(url("/api/auth/password-reset/request"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role, email }),
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res));
-  return await parseJsonOrThrow<{ ok: boolean; expires_in_seconds: number }>(res);
-}
-
-export async function confirmPasswordResetOtp(
-  role: PasswordResetRole,
-  email: string,
-  otp: string,
-  newPassword: string,
-): Promise<{ ok: boolean }> {
-  const res = await fetch(url("/api/auth/password-reset/confirm"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role, email, otp, new_password: newPassword }),
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res));
-  return await parseJsonOrThrow<{ ok: boolean }>(res);
-}
-
 export async function notifyStudentSessionUpdate(
   firebaseIdToken: string,
   payload: {
@@ -351,4 +373,83 @@ export async function notifyAdvisorFinalSlot(
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res));
   return await parseJsonOrThrow<{ ok: boolean }>(res);
+}
+
+export async function createBooking(
+  firebaseIdToken: string,
+  payload: {
+    advisor_id: string;
+    student_id: string;
+    advisor_name: string;
+    student_name: string;
+    student_email: string;
+    scheduled_time: string;
+    end_time: string;
+    selected_slot: string;
+    session_price: string;
+  },
+): Promise<BookingResponse> {
+  const res = await fetch(url("/api/bookings"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<BookingResponse>(res);
+}
+
+export async function getMyBookings(firebaseIdToken: string): Promise<BookingResponse[]> {
+  const res = await fetch(url("/api/bookings/me"), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<BookingResponse[]>(res);
+}
+
+export async function getBookingById(
+  firebaseIdToken: string,
+  bookingId: string,
+): Promise<BookingResponse> {
+  const res = await fetch(url(`/api/bookings/${bookingId}`), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<BookingResponse>(res);
+}
+
+export async function joinBookingAction(
+  firebaseIdToken: string,
+  bookingId: string,
+): Promise<{ message: string }> {
+  const res = await fetch(url(`/api/bookings/${bookingId}/join`), {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ message: string }>(res);
+}
+
+export async function reportNoShowAction(
+  firebaseIdToken: string,
+  bookingId: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const res = await fetch(url(`/api/bookings/${bookingId}/report-noshow`), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ ok: boolean; message?: string }>(res);
 }

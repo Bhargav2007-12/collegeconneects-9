@@ -6,14 +6,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import close_db, connect_db, get_database
 from app.firebase_service import init_firebase_admin
-from app.routers import advisors, students, auth
+from app.routers import advisors, students, auth, bookings
+from app.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
     init_firebase_admin()
+    start_scheduler()
     yield
+    stop_scheduler()
     await close_db()
 
 
@@ -30,6 +33,7 @@ app.add_middleware(
 app.include_router(students.router, prefix="/api")
 app.include_router(advisors.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(bookings.router, prefix="/api")
 
 
 @app.get("/health")

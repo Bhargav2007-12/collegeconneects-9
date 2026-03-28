@@ -51,6 +51,10 @@ export default defineConfig({
         target: `http://127.0.0.1:${FASTAPI_PORT}`,
         changeOrigin: true,
       },
+      "/api/bookings": {
+        target: `http://127.0.0.1:${FASTAPI_PORT}`,
+        changeOrigin: true,
+      },
       "/api": {
         target: "http://127.0.0.1:4943",
         changeOrigin: true,

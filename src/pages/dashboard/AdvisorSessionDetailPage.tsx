@@ -5,96 +5,59 @@ import { getFirebaseAuth } from "@/lib/firebase";
 import {
   getMyAdvisorProfile,
   notifyStudentSessionUpdate,
+  getBookingById,
+  joinBookingAction,
+  reportNoShowAction,
   type AdvisorProfileResponse,
+  type BookingResponse,
 } from "@/lib/restApi";
 import { Button } from "@/components/ui/button";
+import { Video, AlertTriangle, Calendar } from "lucide-react";
 
-const BOOKINGS_STORAGE_KEY = "collegeconnect_bookings_v1";
-
-type SessionBooking = {
-  id: string;
-  advisorId: string;
-  advisorName: string;
-  studentName: string;
-  studentEmail: string;
-  sessionPrice: string;
-  selectedSlot: string;
-  oldSelectedSlot?: string;
-  bookedAt: string;
-  status?: "pending" | "accepted" | "rejected" | "changed";
-};
 
 export default function AdvisorSessionDetailPage() {
   const navigate = useNavigate();
   const { bookingId } = useParams({ from: "/advisor/session/$bookingId" });
-  const [booking, setBooking] = useState<SessionBooking | null>(null);
+  const [booking, setBooking] = useState<BookingResponse | null>(null);
   const [advisor, setAdvisor] = useState<AdvisorProfileResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [newSlot, setNewSlot] = useState("");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = "Session details — CollegeConnect";
-  }, []);
-
-  useEffect(() => {
-    const raw = localStorage.getItem(BOOKINGS_STORAGE_KEY);
-    if (!raw) {
-      setBooking(null);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw) as SessionBooking[];
-      const found = Array.isArray(parsed)
-        ? parsed.find((b) => b.id === bookingId) || null
-        : null;
-      setBooking(found);
-      setNewSlot(found?.selectedSlot || "");
-    } catch {
-      setBooking(null);
-    }
-  }, [bookingId]);
-
-  useEffect(() => {
     let cancelled = false;
-    const loadAdvisor = async () => {
+    const loadData = async () => {
       const u = getFirebaseAuth().currentUser;
       if (!u) return;
       try {
         const token = await u.getIdToken(true);
-        const profile = await getMyAdvisorProfile(token);
-        if (!cancelled) setAdvisor(profile);
-      } catch {
-        if (!cancelled) setAdvisor(null);
+        const [prof, data] = await Promise.all([
+          getMyAdvisorProfile(token),
+          getBookingById(token, bookingId)
+        ]);
+        if (!cancelled) {
+          setAdvisor(prof);
+          setBooking(data);
+          setNewSlot(data.selected_slot || "");
+        }
+      } catch (e) {
+        if (!cancelled) setBooking(null);
       }
     };
-    void loadAdvisor();
+    void loadData();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bookingId]);
 
   const preferredSlots = useMemo(
     () => (advisor?.preferred_timezones && advisor.preferred_timezones.length > 0 ? advisor.preferred_timezones : []),
     [advisor],
   );
 
-  const persistBookingPatch = (patch: Partial<SessionBooking>) => {
-    const raw = localStorage.getItem(BOOKINGS_STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as SessionBooking[];
-      const next = parsed.map((b) => (b.id === bookingId ? { ...b, ...patch } : b));
-      localStorage.setItem(BOOKINGS_STORAGE_KEY, JSON.stringify(next));
-      const updated = next.find((b) => b.id === bookingId) || null;
-      setBooking(updated);
-    } catch {
-      // ignore bad local data
-    }
-  };
 
-  const handleAccept = () => {
-    persistBookingPatch({ status: "accepted" });
+  const handleAccept = async () => {
+    // Optionally call backend to accept
     setStatusMsg("Session accepted.");
   };
 
@@ -109,11 +72,10 @@ export default function AdvisorSessionDetailPage() {
       }
       await notifyStudentSessionUpdate(token, {
         action: "reject",
-        student_email: booking.studentEmail,
-        student_name: booking.studentName,
-        old_slot: booking.selectedSlot,
+        student_email: booking.student_email,
+        student_name: booking.student_name,
+        old_slot: booking.selected_slot,
       });
-      persistBookingPatch({ status: "rejected" });
       setStatusMsg("Rejected and email sent to student.");
     } catch (e) {
       setStatusMsg(e instanceof Error ? e.message : "Could not reject session.");
@@ -137,15 +99,10 @@ export default function AdvisorSessionDetailPage() {
       }
       await notifyStudentSessionUpdate(token, {
         action: "change",
-        student_email: booking.studentEmail,
-        student_name: booking.studentName,
-        old_slot: booking.selectedSlot,
+        student_email: booking.student_email,
+        student_name: booking.student_name,
+        old_slot: booking.selected_slot,
         new_slot: newSlot,
-      });
-      persistBookingPatch({
-        status: "changed",
-        oldSelectedSlot: booking.selectedSlot,
-        selectedSlot: newSlot,
       });
       setStatusMsg("Preferred time changed and email sent to student.");
     } catch (e) {
@@ -153,6 +110,46 @@ export default function AdvisorSessionDetailPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleJoin = async () => {
+    if (!booking?.meet_link) return;
+    try {
+      const token = await getFirebaseAuth().currentUser?.getIdToken(true);
+      if (token) await joinBookingAction(token, booking.id);
+      window.open(booking.meet_link, "_blank");
+    } catch (e) {
+      console.error("Join tracking failed", e);
+      window.open(booking.meet_link, "_blank");
+    }
+  };
+
+  const handleNoShow = async () => {
+    if (!booking) return;
+    setBusy(true);
+    try {
+      const token = await getFirebaseAuth().currentUser?.getIdToken(true);
+      if (!token) return;
+      const res = await reportNoShowAction(token, booking.id);
+      if (res.ok) {
+        setStatusMsg("No-show reported successfully.");
+      } else {
+        setStatusMsg(res.message || "Could not report no-show yet.");
+      }
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : "Error reporting no-show.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const getCalendarUrl = () => {
+    if (!booking) return "";
+    const start = new Date(booking.scheduled_time).toISOString().replace(/-|:|\.\d\d\d/g, "");
+    const end = new Date(booking.end_time).toISOString().replace(/-|:|\.\d\d\d/g, "");
+    const title = encodeURIComponent(`Session with ${booking.student_name}`);
+    const details = encodeURIComponent(`Google Meet: ${booking.meet_link || "Link will be available 10 mins before"}`);
+    return `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${end}&details=${details}&location=${encodeURIComponent(booking.meet_link || "")}`;
   };
 
   if (!booking) {
@@ -179,30 +176,39 @@ export default function AdvisorSessionDetailPage() {
           Back to My Sessions
         </Link>
 
-        <div className="glass rounded-2xl border border-border p-6 sm:p-8 space-y-5">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{booking.studentName}</h1>
-            <p className="text-sm text-muted-foreground">{booking.studentEmail}</p>
+        <div className="glass rounded-2xl border border-border p-6 sm:p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">{booking.student_name}</h1>
+              <p className="text-sm text-muted-foreground">{booking.student_email}</p>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                className="gap-2 border-border/50 hover:bg-white/5"
+                onClick={() => window.open(getCalendarUrl(), "_blank")}
+              >
+                <Calendar size={16} className="text-neon-orange" />
+                Add to Calendar
+              </Button>
+              
+              <Button
+                disabled={!booking.meet_link}
+                className="gap-2 bg-neon-orange hover:bg-neon-orange/90 text-black"
+                onClick={handleJoin}
+              >
+                <Video size={16} />
+                Join Meeting
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {booking.status === "changed" && booking.oldSelectedSlot ? (
-              <>
-                <div className="bg-background/50 rounded-xl px-4 py-3 border border-border/50">
-                  <p className="text-xs text-muted-foreground mb-1">Old preferred slot</p>
-                  <p className="text-sm font-medium text-foreground">{booking.oldSelectedSlot}</p>
-                </div>
-                <div className="bg-background/50 rounded-xl px-4 py-3 border border-border/50">
-                  <p className="text-xs text-muted-foreground mb-1">New preferred slot</p>
-                  <p className="text-sm font-medium text-neon-orange">{booking.selectedSlot || "—"}</p>
-                </div>
-              </>
-            ) : (
-              <div className="bg-background/50 rounded-xl px-4 py-3 border border-border/50">
-                <p className="text-xs text-muted-foreground mb-1">Student selected slot</p>
-                <p className="text-sm font-medium text-foreground">{booking.selectedSlot || "—"}</p>
-              </div>
-            )}
+            <div className="bg-background/50 rounded-xl px-4 py-3 border border-border/50">
+              <p className="text-xs text-muted-foreground mb-1">Student selected slot</p>
+              <p className="text-sm font-medium text-foreground">{booking.selected_slot || "—"}</p>
+            </div>
             <div className="bg-background/50 rounded-xl px-4 py-3 border border-border/50">
               <p className="text-xs text-muted-foreground mb-1">Status</p>
               <p className="text-sm font-medium text-foreground">{booking.status || "pending"}</p>
@@ -210,13 +216,13 @@ export default function AdvisorSessionDetailPage() {
             <div className="bg-background/50 rounded-xl px-4 py-3 border border-border/50">
               <p className="text-xs text-muted-foreground mb-1">Session price</p>
               <p className="text-sm font-medium text-foreground">
-                {booking.sessionPrice ? `₹${booking.sessionPrice}` : "—"}
+                {booking.session_price ? `₹${booking.session_price}` : "—"}
               </p>
             </div>
             <div className="bg-background/50 rounded-xl px-4 py-3 border border-border/50">
-              <p className="text-xs text-muted-foreground mb-1">Booked at</p>
+              <p className="text-xs text-muted-foreground mb-1">Scheduled Time</p>
               <p className="text-sm font-medium text-foreground">
-                {new Date(booking.bookedAt).toLocaleString()}
+                {new Date(booking.scheduled_time).toLocaleString()}
               </p>
             </div>
           </div>
@@ -266,7 +272,26 @@ export default function AdvisorSessionDetailPage() {
             </div>
           </div>
 
-          {statusMsg ? <p className="text-sm text-muted-foreground">{statusMsg}</p> : null}
+          <div className="flex flex-col sm:flex-row items-center gap-3 pt-4 border-t border-border/50">
+            <Button
+              variant="outline"
+              disabled={busy || (booking.scheduled_time ? (new Date().getTime() < new Date(booking.scheduled_time).getTime() + 15 * 60 * 1000) : true)}
+              onClick={handleNoShow}
+              className="w-full sm:w-auto gap-2 border-red-500/20 text-red-500 hover:bg-red-500/10"
+            >
+              <AlertTriangle size={16} />
+              Report Student No-Show
+            </Button>
+            <p className="text-[10px] text-muted-foreground italic">
+              * Available 15 minutes after session start if student hasn't joined.
+            </p>
+          </div>
+
+          {statusMsg ? (
+            <div className="bg-white/5 border border-border/50 rounded-lg p-3">
+              <p className="text-sm text-muted-foreground">{statusMsg}</p>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

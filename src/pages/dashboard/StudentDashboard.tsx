@@ -3,8 +3,10 @@ import { getFirebaseAuth } from "@/lib/firebase";
 import {
   getAdvisorsDirectory,
   getMyStudentProfile,
+  getMyBookings,
   type AdvisorDirectoryItem,
   type StudentProfileResponse,
+  type BookingResponse,
   updateMyStudentProfile,
 } from "@/lib/restApi";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
@@ -30,20 +32,6 @@ const TABS = [
   { id: "sessions", label: "My Sessions", icon: Calendar },
   { id: "profile", label: "My Profile", icon: User },
 ];
-const BOOKINGS_STORAGE_KEY = "collegeconnect_bookings_v1";
-
-type SessionBooking = {
-  id: string;
-  advisorId: string;
-  advisorName: string;
-  studentName: string;
-  studentEmail: string;
-  sessionPrice: string;
-  selectedSlot: string;
-  oldSelectedSlot?: string;
-  bookedAt: string;
-  status?: "pending" | "accepted" | "rejected" | "changed" | "finalized";
-};
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
@@ -53,7 +41,7 @@ export default function StudentDashboard() {
   const [advisors, setAdvisors] = useState<AdvisorDirectoryItem[]>([]);
   const [advisorsLoading, setAdvisorsLoading] = useState(true);
   const [advisorsError, setAdvisorsError] = useState<string | null>(null);
-  const [sessionBookings, setSessionBookings] = useState<SessionBooking[]>([]);
+  const [sessionBookings, setSessionBookings] = useState<BookingResponse[]>([]);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -73,23 +61,23 @@ export default function StudentDashboard() {
     document.title = "Student Dashboard — CollegeConnect";
   }, []);
   useEffect(() => {
-    const loadBookings = () => {
-      const raw = localStorage.getItem(BOOKINGS_STORAGE_KEY);
-      if (!raw) {
-        setSessionBookings([]);
-        return;
-      }
+    let cancelled = false;
+    const loadBookings = async () => {
+      const u = getFirebaseAuth().currentUser;
+      if (!u || activeTab !== "sessions") return;
       try {
-        const parsed = JSON.parse(raw) as SessionBooking[];
-        setSessionBookings(Array.isArray(parsed) ? parsed : []);
-      } catch {
-        setSessionBookings([]);
+        const token = await u.getIdToken(true);
+        const list = await getMyBookings(token);
+        if (!cancelled) setSessionBookings(list);
+      } catch (e) {
+        if (!cancelled) setSessionBookings([]);
       }
     };
-    loadBookings();
-    window.addEventListener("storage", loadBookings);
-    return () => window.removeEventListener("storage", loadBookings);
-  }, []);
+    void loadBookings();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.uid, activeTab]);
   useEffect(() => {
     const auth = getFirebaseAuth();
     return onAuthStateChanged(auth, setAuthUser);
@@ -217,10 +205,7 @@ export default function StudentDashboard() {
       branch.toLowerCase().includes(q);
     return collegeMatch && branchMatch && searchMatch;
   });
-  const currentStudentEmail = (student?.email || authUser?.email || "").trim().toLowerCase();
-  const mySessionBookings = sessionBookings.filter(
-    (b) => String(b.studentEmail || "").trim().toLowerCase() === currentStudentEmail,
-  );
+  const mySessionBookings = sessionBookings; // backend already filters by student
 
   return (
     <div className="min-h-screen bg-background pt-20 px-4 sm:px-6">
@@ -472,7 +457,7 @@ export default function StudentDashboard() {
                     }}
                   >
                     <p className="text-xs text-muted-foreground mb-1">Advisor</p>
-                    <p className="text-lg font-semibold text-foreground">{booking.advisorName}</p>
+                    <p className="text-lg font-semibold text-foreground">{booking.advisor_name}</p>
                     <p className="text-xs text-muted-foreground mt-2">
                       Status: {booking.status || "pending"}
                     </p>
@@ -480,29 +465,26 @@ export default function StudentDashboard() {
                       <div className="bg-background/50 rounded-xl px-3 py-2 border border-border/60">
                         <p className="text-[11px] text-muted-foreground">Session price</p>
                         <p className="text-sm font-medium text-neon-orange">
-                          {booking.sessionPrice ? `₹${booking.sessionPrice}` : "—"}
+                          {booking.session_price ? `₹${booking.session_price}` : "—"}
                         </p>
                       </div>
                       <div className="bg-background/50 rounded-xl px-3 py-2 border border-border/60">
                         <p className="text-[11px] text-muted-foreground">Booked at</p>
                         <p className="text-sm font-medium text-foreground">
-                          {new Date(booking.bookedAt).toLocaleDateString()}
+                          {new Date(booking.created_at).toLocaleDateString()}
                         </p>
                       </div>
                     </div>
                     <div className="mt-3 bg-background/50 rounded-xl px-3 py-2 border border-border/60">
-                      {(booking.status === "changed" || booking.status === "finalized") &&
-                      booking.oldSelectedSlot ? (
+                      {booking.status === "changed" || booking.status === "finalized" ? (
                         <>
-                          <p className="text-[11px] text-muted-foreground">Old preferred slot</p>
-                          <p className="text-sm font-medium text-foreground">{booking.oldSelectedSlot}</p>
-                          <p className="text-[11px] text-muted-foreground mt-2">New preferred slot</p>
-                          <p className="text-sm font-medium text-neon-teal">{booking.selectedSlot || "—"}</p>
+                          <p className="text-[11px] text-muted-foreground mt-2">Preferred slot</p>
+                          <p className="text-sm font-medium text-neon-teal">{booking.selected_slot || "—"}</p>
                         </>
                       ) : (
                         <>
                           <p className="text-[11px] text-muted-foreground">Preferred slot</p>
-                          <p className="text-sm font-medium text-foreground">{booking.selectedSlot || "—"}</p>
+                          <p className="text-sm font-medium text-foreground">{booking.selected_slot || "—"}</p>
                         </>
                       )}
                     </div>

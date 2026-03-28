@@ -16,8 +16,8 @@ class Settings(BaseSettings):
 
     mongodb_uri: str = "mongodb://localhost:27017"
     database_name: str = "collegeconnect"
-    firebase_service_account_path: str = ""
     google_application_credentials: str = ""
+    google_impersonate_user: str = ""
     # Session booking emails (Resend): https://resend.com/docs
     resend_api_key: str = ""
     # e.g. "CollegeConnect <bookings@yourdomain.com>" (must be a verified sender in Resend)

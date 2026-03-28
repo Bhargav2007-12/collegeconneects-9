@@ -48,6 +48,7 @@ def init_firebase_admin() -> None:
         cred = credentials.Certificate(str(path))
         initialize_app(cred)
         _logger.info("Firebase Admin initialized")
+        print("Firebase Admin initialized with service account successfully!")
 
 
 def verify_id_token(id_token: str) -> dict:
