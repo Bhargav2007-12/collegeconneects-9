@@ -58,7 +58,7 @@ export default defineConfig({
         target: `http://127.0.0.1:${FASTAPI_PORT}`,
         changeOrigin: true,
       },
-      "/api/upload": {
+      "/api/bookings": {
         target: `http://127.0.0.1:${FASTAPI_PORT}`,
         changeOrigin: true,
       },

@@ -69,6 +69,8 @@ export type AdvisorProfileResponse = {
   college_email: string;
   detected_college: string;
   branch: string;
+  phone?: string;
+  state?: string;
   bio: string;
   skills: string;
   achievements?: string;
@@ -139,129 +141,55 @@ export type AdvisorPublicDetail = {
   jee_advanced_rank?: string;
 };
 
-export type CollegeIdPresignResponse = {
-  uploadUrl: string;
-  key: string;
-  bucket: string;
+export type PasswordResetRole = "student" | "advisor";
+
+export async function requestPasswordResetOtp(
+  role: PasswordResetRole,
+  email: string,
+): Promise<{ ok: boolean; expires_in_seconds: number }> {
+  const res = await fetch(url("/api/auth/password-reset/request"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, email }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ ok: boolean; expires_in_seconds: number }>(res);
+}
+
+export async function confirmPasswordResetOtp(
+  role: PasswordResetRole,
+  email: string,
+  otp: string,
+  newPassword: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(url("/api/auth/password-reset/confirm"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, email, otp, new_password: newPassword }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ ok: boolean }>(res);
+}
+
+export type BookingResponse = {
+  id: string;
+  advisor_id: string;
+  student_id: string;
+  advisor_name: string;
+  student_name: string;
+  student_email: string;
+  scheduled_time: string;
+  end_time: string;
+  selected_slot: string;
+  session_price: string;
+  status: "pending" | "confirmed" | "cancelled" | "finalized";
+  google_event_id?: string;
+  meet_link?: string;
+  student_joined: boolean;
+  advisor_joined: boolean;
+  created_at: string;
+  updated_at: string;
 };
-
-function fileContentType(file: File): string {
-  const t = file.type?.split(";")[0].trim();
-  if (t && t.startsWith("image/")) return t;
-  return "image/jpeg";
-}
-
-export async function presignCollegeIdUpload(
-  firebaseIdToken: string,
-  params: {
-    role: "advisor" | "student";
-    side: "front" | "back";
-    contentType: string;
-  },
-): Promise<CollegeIdPresignResponse> {
-  const res = await fetch(url("/api/upload/college-id/presign"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${firebaseIdToken}`,
-    },
-    body: JSON.stringify({
-      role: params.role,
-      side: params.side,
-      contentType: params.contentType,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res));
-  }
-  return await parseJsonOrThrow<CollegeIdPresignResponse>(res);
-}
-
-export async function putToPresignedUrl(
-  uploadUrl: string,
-  body: Blob,
-  contentType: string,
-): Promise<void> {
-  const ct = contentType.split(";")[0].trim();
-  const res = await fetch(uploadUrl, {
-    method: "PUT",
-    body,
-    headers: { "Content-Type": ct },
-  });
-  if (!res.ok) {
-    throw new Error(`Direct upload failed (${res.status})`);
-  }
-}
-
-/** Presign both sides and PUT files to S3; returns keys to send with register payload. */
-export async function uploadCollegeIdPairToS3(
-  firebaseIdToken: string,
-  role: "advisor" | "student",
-  front: File,
-  back: File,
-): Promise<{ collegeIdFrontKey: string; collegeIdBackKey: string }> {
-  const ctF = fileContentType(front);
-  const ctB = fileContentType(back);
-  const [pf, pb] = await Promise.all([
-    presignCollegeIdUpload(firebaseIdToken, {
-      role,
-      side: "front",
-      contentType: ctF,
-    }),
-    presignCollegeIdUpload(firebaseIdToken, {
-      role,
-      side: "back",
-      contentType: ctB,
-    }),
-  ]);
-  await Promise.all([
-    putToPresignedUrl(pf.uploadUrl, front, ctF),
-    putToPresignedUrl(pb.uploadUrl, back, ctB),
-  ]);
-  return {
-    collegeIdFrontKey: pf.key,
-    collegeIdBackKey: pb.key,
-  };
-}
-
-export async function presignProfilePictureUpload(
-  firebaseIdToken: string,
-  params: {
-    role: "advisor" | "student";
-    contentType: string;
-  },
-): Promise<CollegeIdPresignResponse> {
-  const res = await fetch(url("/api/upload/profile-picture/presign"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${firebaseIdToken}`,
-    },
-    body: JSON.stringify({
-      role: params.role,
-      contentType: params.contentType,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res));
-  }
-  return await parseJsonOrThrow<CollegeIdPresignResponse>(res);
-}
-
-/** Presign one avatar PUT; returns S3 object key for register payload. */
-export async function uploadProfilePictureToS3(
-  firebaseIdToken: string,
-  role: "advisor" | "student",
-  file: File,
-): Promise<string> {
-  const ct = fileContentType(file);
-  const p = await presignProfilePictureUpload(firebaseIdToken, {
-    role,
-    contentType: ct,
-  });
-  await putToPresignedUrl(p.uploadUrl, file, ct);
-  return p.key;
-}
 
 export async function registerStudent(
   firebaseIdToken: string,
@@ -418,36 +346,6 @@ export async function bookAdvisorSession(
   }>(res);
 }
 
-export type PasswordResetRole = "student" | "advisor";
-
-export async function requestPasswordResetOtp(
-  role: PasswordResetRole,
-  email: string,
-): Promise<{ ok: boolean; expires_in_seconds: number }> {
-  const res = await fetch(url("/api/auth/password-reset/request"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role, email }),
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res));
-  return await parseJsonOrThrow<{ ok: boolean; expires_in_seconds: number }>(res);
-}
-
-export async function confirmPasswordResetOtp(
-  role: PasswordResetRole,
-  email: string,
-  otp: string,
-  newPassword: string,
-): Promise<{ ok: boolean }> {
-  const res = await fetch(url("/api/auth/password-reset/confirm"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role, email, otp, new_password: newPassword }),
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res));
-  return await parseJsonOrThrow<{ ok: boolean }>(res);
-}
-
 export async function notifyStudentSessionUpdate(
   firebaseIdToken: string,
   payload: {
@@ -490,22 +388,21 @@ export async function notifyAdvisorFinalSlot(
   return await parseJsonOrThrow<{ ok: boolean }>(res);
 }
 
-export async function getAdvisorReferralSummary(
+export async function createBooking(
   firebaseIdToken: string,
-): Promise<ReferralSummaryResponse> {
-  const res = await fetch(url("/api/advisors/referrals/summary"), {
-    method: "GET",
-    headers: { Authorization: `Bearer ${firebaseIdToken}` },
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res));
-  return await parseJsonOrThrow<ReferralSummaryResponse>(res);
-}
-
-export async function createAdvisorReferral(
-  firebaseIdToken: string,
-  payload: { referred_email: string },
-): Promise<{ ok: boolean }> {
-  const res = await fetch(url("/api/advisors/referrals/create"), {
+  payload: {
+    advisor_id: string;
+    student_id: string;
+    advisor_name: string;
+    student_name: string;
+    student_email: string;
+    scheduled_time: string;
+    end_time: string;
+    selected_slot: string;
+    session_price: string;
+  },
+): Promise<BookingResponse> {
+  const res = await fetch(url("/api/bookings"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -514,32 +411,58 @@ export async function createAdvisorReferral(
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res));
-  return await parseJsonOrThrow<{ ok: boolean }>(res);
+  return await parseJsonOrThrow<BookingResponse>(res);
 }
 
-export async function getStudentReferralSummary(
-  firebaseIdToken: string,
-): Promise<ReferralSummaryResponse> {
-  const res = await fetch(url("/api/students/referrals/summary"), {
+export async function getMyBookings(firebaseIdToken: string): Promise<BookingResponse[]> {
+  const res = await fetch(url("/api/bookings/me"), {
     method: "GET",
-    headers: { Authorization: `Bearer ${firebaseIdToken}` },
-  });
-  if (!res.ok) throw new Error(await parseErrorMessage(res));
-  return await parseJsonOrThrow<ReferralSummaryResponse>(res);
-}
-
-export async function createStudentReferral(
-  firebaseIdToken: string,
-  payload: { referred_email: string; referred_role: "student" | "advisor" },
-): Promise<{ ok: boolean }> {
-  const res = await fetch(url("/api/students/referrals/create"), {
-    method: "POST",
     headers: {
-      "Content-Type": "application/json",
       Authorization: `Bearer ${firebaseIdToken}`,
     },
-    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res));
-  return await parseJsonOrThrow<{ ok: boolean }>(res);
+  return await parseJsonOrThrow<BookingResponse[]>(res);
+}
+
+export async function getBookingById(
+  firebaseIdToken: string,
+  bookingId: string,
+): Promise<BookingResponse> {
+  const res = await fetch(url(`/api/bookings/${bookingId}`), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<BookingResponse>(res);
+}
+
+export async function joinBookingAction(
+  firebaseIdToken: string,
+  bookingId: string,
+): Promise<{ message: string }> {
+  const res = await fetch(url(`/api/bookings/${bookingId}/join`), {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ message: string }>(res);
+}
+
+export async function reportNoShowAction(
+  firebaseIdToken: string,
+  bookingId: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const res = await fetch(url(`/api/bookings/${bookingId}/report-noshow`), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ ok: boolean; message?: string }>(res);
 }

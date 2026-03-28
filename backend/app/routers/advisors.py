@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-import secrets
+from datetime import datetime, timezone, timedelta
 from typing import Literal
 
 from bson import ObjectId
@@ -43,6 +42,33 @@ def _normalize_advisor_doc(doc: dict) -> dict:
         doc["language_other"] = doc.get("languageOther")
     if "preferred_timezones" not in doc and "preferredTimezones" in doc:
         doc["preferred_timezones"] = doc.get("preferredTimezones")
+    return doc
+
+
+async def _add_advisor_stats(doc: dict, db) -> dict:
+    """Add total_sessions, total_earnings, and total_students to the advisor doc."""
+    advisor_id = doc.get("id") or str(doc.get("_id", ""))
+    if not advisor_id:
+        return doc
+        
+    bookings_cursor = db.bookings.find({"advisor_id": advisor_id})
+    bookings = await bookings_cursor.to_list(length=1000)
+    
+    unique_students = set()
+    total_earnings = 0
+    for b in bookings:
+        sid = b.get("student_id")
+        if sid:
+            unique_students.add(sid)
+        if b.get("status") in ["confirmed", "finalized"]:
+            try:
+                total_earnings += int(b.get("session_price") or 0)
+            except (ValueError, TypeError):
+                pass
+                
+    doc["total_sessions"] = len(bookings)
+    doc["total_earnings"] = total_earnings
+    doc["total_students"] = len(unique_students)
     return doc
 
 
@@ -181,6 +207,30 @@ async def book_advisor(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Booking email could not be sent via Resend: {e!s}",
         ) from e
+
+    # Persist the booking in the database
+    now = datetime.now(timezone.utc)
+    # Assume 1 hour session for now, adjust if there's a specific duration
+    # We need to parse selected_slot or just store it. 
+    # For now, we'll store the text slot and a placeholder scheduled_time if we can't parse it easily.
+    # In a real app, selected_slot should be a timestamp.
+    booking_doc = {
+        "advisor_id": str(advisor["_id"]),
+        "student_id": str(student["_id"]),
+        "advisor_name": str(advisor.get("name") or "Advisor"),
+        "student_name": str(student.get("name") or "Student"),
+        "student_email": student_email,
+        "selected_slot": selected_slot,
+        "session_price": str(advisor.get("session_price", "")),
+        "status": "pending",
+        "scheduled_time": now + timedelta(days=1), # Placeholder: use actual slot parsing if possible
+        "end_time": now + timedelta(days=1, hours=1),
+        "student_joined": False,
+        "advisor_joined": False,
+        "created_at": now,
+        "updated_at": now
+    }
+    await db.bookings.insert_one(booking_doc)
 
     return {
         "ok": True,
@@ -388,10 +438,11 @@ async def get_my_advisor(claims: dict = Depends(firebase_claims)) -> dict:
                 doc["firebase_uid"] = uid
     if not doc:
         raise HTTPException(status_code=404, detail="Advisor profile not found")
+    
     doc = _normalize_advisor_doc(doc)
     doc["id"] = str(doc.pop("_id"))
     doc.pop("password_hash", None)
-    return doc
+    return await _add_advisor_stats(doc, db)
 
 
 @router.patch("/me")
@@ -446,7 +497,7 @@ async def update_my_advisor(
     fresh = _normalize_advisor_doc(fresh)
     fresh["id"] = str(fresh.pop("_id"))
     fresh.pop("password_hash", None)
-    return fresh
+    return await _add_advisor_stats(fresh, db)
 
 
 @router.get("/id/{advisor_id}")

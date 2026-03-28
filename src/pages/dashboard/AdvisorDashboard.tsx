@@ -2,29 +2,18 @@ import { useState } from "react";
 import { getFirebaseAuth } from "@/lib/firebase";
 import {
   getMyAdvisorProfile,
+  getMyBookings,
   type AdvisorProfileResponse,
+  type BookingResponse,
   updateMyAdvisorProfile,
 } from "@/lib/restApi";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { useNavigate } from "@tanstack/react-router";
-import { User, Calendar, IndianRupee, Star, TrendingUp, Users, Gift } from "lucide-react";
+import { User, Calendar, IndianRupee, Star, TrendingUp, Users, Wallet, ArrowUpRight, History } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect } from "react";
 import AdvisorReferEarnPage from "./AdvisorReferEarnPage";
 
-const BOOKINGS_STORAGE_KEY = "collegeconnect_bookings_v1";
-
-type SessionBooking = {
-  id: string;
-  advisorId: string;
-  advisorName: string;
-  studentName: string;
-  studentEmail: string;
-  sessionPrice: string;
-  selectedSlot: string;
-  bookedAt: string;
-  status?: "pending" | "accepted" | "rejected" | "changed";
-};
 
 const TABS = [
   { id: "overview", label: "Overview", icon: TrendingUp },
@@ -60,7 +49,7 @@ export default function AdvisorDashboard() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [sessionBookings, setSessionBookings] = useState<SessionBooking[]>([]);
+  const [sessionBookings, setSessionBookings] = useState<BookingResponse[]>([]);
   const [editForm, setEditForm] = useState({
     name: "",
     branch: "",
@@ -73,19 +62,27 @@ export default function AdvisorDashboard() {
     preferred_timezones: [{ from: "", to: "" }, { from: "", to: "" }, { from: "", to: "" }, { from: "", to: "" }],
   });
   useEffect(() => {
-    if (activeTab !== "sessions") return;
-    const raw = localStorage.getItem(BOOKINGS_STORAGE_KEY);
-    if (!raw) {
-      setSessionBookings([]);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw) as SessionBooking[];
-      setSessionBookings(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setSessionBookings([]);
-    }
-  }, [activeTab]);
+    document.title = "Advisor Dashboard — CollegeConnect";
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBookings = async () => {
+      const u = getFirebaseAuth().currentUser;
+      if (!u || activeTab !== "sessions") return;
+      try {
+        const token = await u.getIdToken(true);
+        const list = await getMyBookings(token);
+        if (!cancelled) setSessionBookings(list);
+      } catch (e) {
+        if (!cancelled) setSessionBookings([]);
+      }
+    };
+    void loadBookings();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.uid, activeTab]);
   useEffect(() => {
     const auth = getFirebaseAuth();
     return onAuthStateChanged(auth, setAuthUser);
@@ -125,8 +122,8 @@ export default function AdvisorDashboard() {
     setEditForm({
       name: advisor.name || "",
       branch: advisor.branch || "",
-      phone: (advisor as { phone?: string }).phone || "",
-      state: (advisor as { state?: string }).state || "",
+      phone: advisor.phone || "",
+      state: advisor.state || "",
       bio: advisor.bio || "",
       skills: advisor.skills || "",
       achievements: advisor.achievements || "",
@@ -135,28 +132,6 @@ export default function AdvisorDashboard() {
     });
   }, [advisor]);
 
-  useEffect(() => {
-    const loadBookings = () => {
-      const raw = localStorage.getItem(BOOKINGS_STORAGE_KEY);
-      if (!raw) {
-        setSessionBookings([]);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(raw) as SessionBooking[];
-        if (!Array.isArray(parsed)) {
-          setSessionBookings([]);
-          return;
-        }
-        setSessionBookings(parsed);
-      } catch {
-        setSessionBookings([]);
-      }
-    };
-    loadBookings();
-    window.addEventListener("storage", loadBookings);
-    return () => window.removeEventListener("storage", loadBookings);
-  }, []);
 
   const advisorName = advisor?.name || "Advisor";
   const advisorCollege = advisor?.detected_college || "Not available";
@@ -176,9 +151,7 @@ export default function AdvisorDashboard() {
   const advisorTotalEarnings = advisor?.total_earnings ?? 0;
   const advisorTotalSessions = advisor?.total_sessions ?? 0;
   const advisorTotalStudents = advisor?.total_students ?? 0;
-  const mySessionBookings = sessionBookings.filter(
-    (b) => advisor?.id && b.advisorId === advisor.id,
-  );
+  const mySessionBookings = sessionBookings; // backend already filters by advisor
   const welcomeName =
     advisorName ||
     authUser?.displayName?.trim() ||
@@ -257,6 +230,12 @@ export default function AdvisorDashboard() {
             </button>
           ))}
         </div>
+
+        {loadingProfile && activeTab !== "profile" && (
+          <div className="flex items-center justify-center p-12">
+            <p className="text-muted-foreground animate-pulse">Loading dashboard data...</p>
+          </div>
+        )}
 
         {/* OVERVIEW TAB */}
         {activeTab === "overview" && (
@@ -344,24 +323,24 @@ export default function AdvisorDashboard() {
                     className="glass rounded-2xl border border-border p-5 cursor-pointer hover:border-neon-orange/50 transition-colors"
                   >
                     <p className="text-xs text-muted-foreground mb-1">Student</p>
-                    <p className="text-lg font-semibold text-foreground">{booking.studentName}</p>
-                    <p className="text-sm text-muted-foreground mb-3">{booking.studentEmail}</p>
+                    <p className="text-lg font-semibold text-foreground">{booking.student_name}</p>
+                    <p className="text-sm text-muted-foreground mb-3">{booking.student_email}</p>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-background/50 rounded-xl px-3 py-2 border border-border/60">
                         <p className="text-[11px] text-muted-foreground">Session price</p>
                         <p className="text-sm font-medium text-neon-orange">
-                          {booking.sessionPrice ? `₹${booking.sessionPrice}` : "—"}
+                          {booking.session_price ? `₹${booking.session_price}` : "—"}
                         </p>
                       </div>
                       <div className="bg-background/50 rounded-xl px-3 py-2 border border-border/60">
                         <p className="text-[11px] text-muted-foreground">Selected slot</p>
                         <p className="text-sm font-medium text-foreground">
-                          {booking.selectedSlot || "—"}
+                          {booking.selected_slot || "—"}
                         </p>
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Status: {booking.status || "pending"} • Booked {new Date(booking.bookedAt).toLocaleDateString()}
+                      Status: {booking.status || "pending"} • Booked {booking.created_at ? new Date(booking.created_at).toLocaleDateString() : "unknown"}
                     </p>
                   </div>
                 ))}
@@ -370,25 +349,116 @@ export default function AdvisorDashboard() {
           </motion.div>
         )}
 
-        {/* EARNINGS TAB */}
+        {/* EARNINGS TAB (Wallet) */}
         {activeTab === "earnings" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-              <div className="glass rounded-2xl border border-border p-6">
-                <p className="text-sm text-muted-foreground mb-2">Total Earnings</p>
-                <p className="text-4xl font-display font-bold text-neon-orange">₹{advisorTotalEarnings}</p>
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            {/* Wallet Card */}
+            <div className="glass rounded-3xl border border-border overflow-hidden relative">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-neon-orange/10 blur-[100px] rounded-full -mr-32 -mt-32" />
+              <div className="p-8 sm:p-10 relative z-10">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-neon-orange/20 flex items-center justify-center">
+                      <Wallet size={24} className="text-neon-orange" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground">My Wallet</h3>
+                      <p className="text-sm text-muted-foreground">Manage your earnings and payouts</p>
+                    </div>
+                  </div>
+                  <div className="hidden sm:block">
+                    <span className="px-3 py-1 rounded-full bg-neon-teal/10 text-neon-teal text-xs font-medium border border-neon-teal/20">
+                      Active
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 items-end">
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-2">Available Balance (Net)</p>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-5xl font-display font-bold text-foreground">₹{Math.floor(advisorTotalEarnings * 0.7)}</span>
+                      <span className="text-muted-foreground text-sm font-medium">INR</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-2 italic">* Balance after 30% platform fee</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button className="flex-1 inline-flex items-center justify-center gap-2 bg-neon-orange hover:bg-neon-orange/90 text-black font-semibold rounded-2xl h-14 transition-all shadow-lg shadow-neon-orange/20 group">
+                      <ArrowUpRight size={20} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                      Withdraw Money
+                    </button>
+                    <button className="flex-1 inline-flex items-center justify-center gap-2 glass border border-border hover:bg-white/5 text-foreground font-semibold rounded-2xl h-14 transition-all">
+                      <History size={20} />
+                      Payout History
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="glass rounded-2xl border border-border p-6">
-                <p className="text-sm text-muted-foreground mb-2">Per Session</p>
-                <p className="text-4xl font-display font-bold text-neon-teal">
-                  {advisorSessionPrice > 0 ? `₹${advisorSessionPrice}` : "Not set"}
-                </p>
+
+              {/* Quick Access Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 border-t border-border">
+                {[
+                  { label: "Pending Payout", value: "₹0", color: "text-muted-foreground" },
+                  { label: "Total Tax Paid", value: "₹0", color: "text-muted-foreground" },
+                  { label: "Last Payout", value: "None", color: "text-muted-foreground" },
+                  { label: "Platform Fee", value: "30%", color: "text-neon-teal" },
+                ].map((stat, idx) => (
+                  <div key={idx} className="p-4 border-r border-border last:border-r-0 text-center sm:text-left">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{stat.label}</p>
+                    <p className={`text-sm font-bold ${stat.color}`}>{stat.value}</p>
+                  </div>
+                ))}
               </div>
             </div>
-            <div className="glass rounded-2xl border border-border p-8 text-center">
-              <IndianRupee size={40} className="text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-xl font-bold text-foreground mb-2">No transactions yet</h3>
-              <p className="text-muted-foreground">Your earnings will show here once students book sessions!</p>
+
+            {/* Recent Transactions Section */}
+            <div className="glass rounded-3xl border border-border p-6 sm:p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-semibold text-foreground">Recent Transactions</h3>
+                <button className="text-xs text-neon-orange hover:underline font-medium">View All</button>
+              </div>
+
+              {advisorTotalEarnings === 0 ? (
+                <div className="py-12 text-center">
+                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4 border border-border/50">
+                    <IndianRupee size={24} className="text-muted-foreground" />
+                  </div>
+                  <h4 className="text-lg font-bold text-foreground mb-2">No transactions yet</h4>
+                  <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+                    Your earnings will show here once students start booking sessions with you.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* We could map over real bookings that are 'accepted' or 'paid' here */}
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-border/50 hover:bg-white/10 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-neon-teal/20 flex items-center justify-center text-neon-teal">
+                        <TrendingUp size={18} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Session Credit</p>
+                        <p className="text-xs text-muted-foreground">From Recent Bookings</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-neon-teal">+ ₹{advisorTotalEarnings}</p>
+                      <p className="text-[10px] text-muted-foreground">Completed</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Payout Information Alert */}
+            <div className="bg-neon-teal/5 border border-neon-teal/20 rounded-2xl p-4 flex gap-4">
+              <TrendingUp size={20} className="text-neon-teal shrink-0" />
+              <div className="text-sm">
+                <p className="text-neon-teal font-semibold">Automatic Weekly Payouts</p>
+                <p className="text-muted-foreground mt-0.5">
+                  Your earnings are processed every Monday and credited to your linked bank account within 2-3 business days.
+                </p>
+              </div>
             </div>
           </motion.div>
         )}
