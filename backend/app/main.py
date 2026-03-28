@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import close_db, connect_db, get_database
 from app.firebase_service import init_firebase_admin
-from app.routers import advisors, students, auth
+from app.routers import advisors, auth, students, upload
+from app.s3_service import s3_configured
 
 
 @asynccontextmanager
@@ -30,11 +31,23 @@ app.add_middleware(
 app.include_router(students.router, prefix="/api")
 app.include_router(advisors.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(upload.router, prefix="/api")
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/meta/s3")
+async def meta_s3() -> dict[str, str | bool]:
+    """Non-secret check that college-ID upload env is loaded (browser uploads still need bucket CORS)."""
+    return {
+        "configured": s3_configured(),
+        "bucket": settings.s3_bucket if s3_configured() else "",
+        "region": settings.aws_region if s3_configured() else "",
+        "prefix": (settings.s3_college_ids_prefix or "college-ids").strip().strip("/"),
+    }
 
 
 @app.get("/api/meta/db-stats")

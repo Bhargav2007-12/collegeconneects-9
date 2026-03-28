@@ -28,6 +28,8 @@ class AdvisorCreate(BaseModel):
 
     phone: str = Field(min_length=1)
 
+    upi_id: str = Field(alias="upiId")
+
     personal_email: Optional[EmailStr] = Field(default=None, alias="personalEmail")
 
     state: str
@@ -40,7 +42,7 @@ class AdvisorCreate(BaseModel):
 
     bio: str
 
-    skills: str
+    skills: Optional[str] = None
 
     achievements: Optional[str] = None
 
@@ -48,13 +50,37 @@ class AdvisorCreate(BaseModel):
 
     language_other: Optional[str] = Field(default=None, alias="languageOther")
 
+    profile_picture: Optional[str] = Field(default=None, alias="profilePicture")
+
     preferred_timezones: list[str] = Field(default_factory=list, alias="preferredTimezones")
 
     session_price: str = Field(alias="sessionPrice")
 
-    # True when user completed ID upload in the app; image bytes are not stored in MongoDB.
+    # Acknowledgment checkbox; college ID + optional profile photo live in S3 — we store object keys only.
 
     college_id_acknowledged: bool = Field(default=True, alias="collegeIdAcknowledged")
+
+    college_id_front_key: Optional[str] = Field(default=None, alias="collegeIdFrontKey")
+
+    college_id_back_key: Optional[str] = Field(default=None, alias="collegeIdBackKey")
+
+    referral_code: Optional[str] = Field(default=None, alias="referralCode")
+
+
+
+    @field_validator("referral_code", mode="before")
+
+    @classmethod
+
+    def strip_referral_code(cls, v: object) -> str | None:
+
+        if v is None or v == "":
+
+            return None
+
+        s = str(v).strip()
+
+        return s if s else None
 
 
 
@@ -86,7 +112,16 @@ class AdvisorCreate(BaseModel):
 
 
 
-    @field_validator("jee_advanced_rank", "language_other", "achievements", mode="before")
+    @field_validator(
+        "jee_advanced_rank",
+        "language_other",
+        "achievements",
+        "skills",
+        "profile_picture",
+        "college_id_front_key",
+        "college_id_back_key",
+        mode="before",
+    )
 
     @classmethod
 

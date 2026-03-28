@@ -34,10 +34,6 @@ export default function AdvisorSessionDetailPage() {
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = "Session details — CollegeConnect";
-  }, []);
-
-  useEffect(() => {
     const raw = localStorage.getItem(BOOKINGS_STORAGE_KEY);
     if (!raw) {
       setBooking(null);
@@ -93,9 +89,28 @@ export default function AdvisorSessionDetailPage() {
     }
   };
 
-  const handleAccept = () => {
-    persistBookingPatch({ status: "accepted" });
-    setStatusMsg("Session accepted.");
+  const handleAccept = async () => {
+    if (!booking) return;
+    setBusy(true);
+    try {
+      const token = await getFirebaseAuth().currentUser?.getIdToken(true);
+      if (!token) {
+        setStatusMsg("Sign in required.");
+        return;
+      }
+      await notifyStudentSessionUpdate(token, {
+        action: "accept",
+        student_email: booking.studentEmail,
+        student_name: booking.studentName,
+        old_slot: booking.selectedSlot,
+      });
+      persistBookingPatch({ status: "accepted" });
+      setStatusMsg("Session accepted.");
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : "Could not accept session.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleReject = async () => {

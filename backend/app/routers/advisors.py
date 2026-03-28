@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import secrets
 from typing import Literal
 
 from bson import ObjectId
@@ -8,9 +9,16 @@ from pymongo.errors import DuplicateKeyError, OperationFailure, PyMongoError
 
 from app.database import get_database
 from app.deps import firebase_claims
+from app.referral_rewards import apply_referral_rewards_on_session_accept
+from app.referral_signup import insert_referral_from_signup, resolve_signup_referral_or_raise
 from app.mailer import (
     send_advisor_session_update_email_to_student,
     send_booking_email_to_advisor,
+)
+from app.s3_service import (
+    college_id_keys_valid_for_uid,
+    profile_picture_key_valid_for_uid,
+    s3_configured,
 )
 from app.schemas.advisor import AdvisorCreate, AdvisorResponse
 
@@ -62,11 +70,15 @@ class AdvisorBookingCreate(BaseModel):
 
 
 class AdvisorSessionUpdateNotify(BaseModel):
-    action: Literal["reject", "change"]
+    action: Literal["accept", "reject", "change"]
     student_email: str
     student_name: str
     old_slot: str
     new_slot: str | None = None
+
+
+class AdvisorReferralCreate(BaseModel):
+    referred_email: str
 
 
 @router.get("/list")
@@ -193,7 +205,7 @@ async def notify_student_about_session_update(
     advisor_name = str(advisor.get("name") or "Advisor")
 
     old_slot = str(payload.old_slot or "").strip()
-    if not old_slot:
+    if payload.action in ("reject", "change") and not old_slot:
         raise HTTPException(status_code=400, detail="Old slot is required.")
     preferred_slots = advisor.get("preferred_timezones") or advisor.get("preferredTimezones") or []
     normalized_slots = [str(s).strip() for s in preferred_slots if str(s).strip()]
@@ -208,6 +220,19 @@ async def notify_student_about_session_update(
             )
     else:
         new_slot = None
+
+    if payload.action == "accept":
+        student_email = str(payload.student_email).strip().lower()
+        await db.advisors.update_one(
+            {"_id": advisor["_id"]},
+            {"$inc": {"total_sessions": 1}, "$set": {"updated_at": datetime.now(timezone.utc)}},
+        )
+        await db.students.update_one(
+            {"email": student_email},
+            {"$inc": {"total_sessions": 1}, "$set": {"updated_at": datetime.now(timezone.utc)}},
+        )
+        await apply_referral_rewards_on_session_accept(db, advisor, student_email)
+        return {"ok": True}
 
     try:
         send_advisor_session_update_email_to_student(
@@ -245,9 +270,45 @@ async def create_advisor(
             detail="College email does not match your Firebase sign-in session.",
         )
 
+    if s3_configured():
+        if not payload.college_id_front_key or not payload.college_id_back_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="College ID front and back uploads are required (S3 object keys missing).",
+            )
+        if not college_id_keys_valid_for_uid(
+            uid,
+            "advisor",
+            payload.college_id_front_key,
+            payload.college_id_back_key,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="College ID upload keys do not match this account or session.",
+            )
+        if payload.profile_picture:
+            pp = str(payload.profile_picture).strip()
+            if pp.startswith("data:"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Profile picture must be uploaded to S3 (use presigned upload), not embedded as base64.",
+                )
+            if not profile_picture_key_valid_for_uid(uid, "advisor", pp):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Profile picture key does not match this account or session.",
+                )
+
     db = get_database()
     now = datetime.now(timezone.utc)
     doc = payload.model_dump(by_alias=False)
+    doc.pop("referral_code", None)
+    referrer_info = await resolve_signup_referral_or_raise(
+        db,
+        payload.referral_code,
+        "advisor",
+        str(payload.college_email).lower(),
+    )
     doc["firebase_uid"] = uid
     doc["college_email"] = str(payload.college_email).lower()
     pe = doc.get("personal_email")
@@ -257,6 +318,7 @@ async def create_advisor(
         doc.pop("personal_email", None)
     doc["created_at"] = now
     doc["updated_at"] = now
+    doc.setdefault("total_sessions", 0)
 
     try:
         result = await db.advisors.insert_one(doc)
@@ -280,6 +342,25 @@ async def create_advisor(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error: {e!s}",
         ) from e
+
+    if referrer_info:
+        try:
+            already = await db.referrals.find_one(
+                {
+                    "referred_email": str(payload.college_email).lower(),
+                    "referred_role": "advisor",
+                }
+            )
+            if not already:
+                await insert_referral_from_signup(
+                    db,
+                    referrer_info,
+                    str(payload.college_email).lower(),
+                    "advisor",
+                )
+        except Exception:
+            await db.advisors.delete_one({"_id": result.inserted_id})
+            raise
 
     return AdvisorResponse(
         id=str(result.inserted_id),
@@ -379,3 +460,80 @@ async def get_advisor(advisor_id: str) -> dict:
     doc["id"] = str(doc.pop("_id"))
     doc.pop("password_hash", None)
     return doc
+
+
+@router.get("/referrals/summary")
+async def advisor_referral_summary(claims: dict = Depends(firebase_claims)) -> dict:
+    uid = claims["uid"]
+    db = get_database()
+    advisor = await db.advisors.find_one({"firebase_uid": uid})
+    if not advisor:
+        raise HTTPException(status_code=404, detail="Advisor profile not found")
+
+    referral_code = str(advisor.get("referral_code") or "").strip()
+    if not referral_code:
+        referral_code = f"ADV-{secrets.token_hex(4).upper()}"
+        await db.advisors.update_one(
+            {"_id": advisor["_id"]},
+            {"$set": {"referral_code": referral_code, "updated_at": datetime.now(timezone.utc)}},
+        )
+    attended_sessions = int(advisor.get("total_sessions") or 0)
+    total_referrals = await db.referrals.count_documents(
+        {"referrer_uid": uid, "referrer_role": "advisor"}
+    )
+    earnings = float(advisor.get("referral_earnings_inr") or 0)
+    return {
+        "ok": True,
+        "referral_code": referral_code,
+        "attended_sessions": attended_sessions,
+        "can_refer": attended_sessions >= 2,
+        "total_referrals": total_referrals,
+        "referral_earnings_inr": round(earnings, 2),
+        "program_note": "You earn 3% from the referred advisor's next 5 sessions.",
+    }
+
+
+@router.post("/referrals/create")
+async def advisor_create_referral(
+    payload: AdvisorReferralCreate, claims: dict = Depends(firebase_claims)
+) -> dict:
+    uid = claims["uid"]
+    referrer_email = (claims.get("email") or "").lower()
+    db = get_database()
+    advisor = await db.advisors.find_one({"firebase_uid": uid})
+    if not advisor:
+        raise HTTPException(status_code=404, detail="Advisor profile not found")
+    attended_sessions = int(advisor.get("total_sessions") or 0)
+    if attended_sessions < 2:
+        raise HTTPException(
+            status_code=403,
+            detail="Referral unlocks after attending at least 2 sessions.",
+        )
+    referred_email = str(payload.referred_email or "").strip().lower()
+    if not referred_email:
+        raise HTTPException(status_code=400, detail="Referred email is required.")
+    if referred_email == referrer_email:
+        raise HTTPException(status_code=400, detail="You cannot refer yourself.")
+    existing = await db.referrals.find_one(
+        {
+            "referrer_uid": uid,
+            "referrer_role": "advisor",
+            "referred_email": referred_email,
+            "referred_role": "advisor",
+        }
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Referral already recorded for this email.")
+    await db.referrals.insert_one(
+        {
+            "referrer_uid": uid,
+            "referrer_role": "advisor",
+            "referrer_email": referrer_email,
+            "referred_email": referred_email,
+            "referred_role": "advisor",
+            "reward_rule": "3% of referred advisor next 5 sessions",
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    return {"ok": True}

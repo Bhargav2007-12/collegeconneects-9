@@ -80,6 +80,19 @@ export type AdvisorProfileResponse = {
   total_students?: number;
 };
 
+export type ReferralSummaryResponse = {
+  ok: boolean;
+  referral_code: string;
+  attended_sessions: number;
+  can_refer: boolean;
+  total_referrals: number;
+  program_note: string;
+  /** Advisor: cumulative ₹ from 3% on referred advisors’ sessions (up to 5 each). */
+  referral_earnings_inr?: number;
+  /** Student: cumulative ₹ value credited from referrals (discounts / student→advisor rewards). */
+  referral_rewards_inr?: number;
+};
+
 export type StudentProfileResponse = {
   id: string;
   name: string;
@@ -125,6 +138,130 @@ export type AdvisorPublicDetail = {
   jee_mains_rank?: string;
   jee_advanced_rank?: string;
 };
+
+export type CollegeIdPresignResponse = {
+  uploadUrl: string;
+  key: string;
+  bucket: string;
+};
+
+function fileContentType(file: File): string {
+  const t = file.type?.split(";")[0].trim();
+  if (t && t.startsWith("image/")) return t;
+  return "image/jpeg";
+}
+
+export async function presignCollegeIdUpload(
+  firebaseIdToken: string,
+  params: {
+    role: "advisor" | "student";
+    side: "front" | "back";
+    contentType: string;
+  },
+): Promise<CollegeIdPresignResponse> {
+  const res = await fetch(url("/api/upload/college-id/presign"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+    body: JSON.stringify({
+      role: params.role,
+      side: params.side,
+      contentType: params.contentType,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res));
+  }
+  return await parseJsonOrThrow<CollegeIdPresignResponse>(res);
+}
+
+export async function putToPresignedUrl(
+  uploadUrl: string,
+  body: Blob,
+  contentType: string,
+): Promise<void> {
+  const ct = contentType.split(";")[0].trim();
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    body,
+    headers: { "Content-Type": ct },
+  });
+  if (!res.ok) {
+    throw new Error(`Direct upload failed (${res.status})`);
+  }
+}
+
+/** Presign both sides and PUT files to S3; returns keys to send with register payload. */
+export async function uploadCollegeIdPairToS3(
+  firebaseIdToken: string,
+  role: "advisor" | "student",
+  front: File,
+  back: File,
+): Promise<{ collegeIdFrontKey: string; collegeIdBackKey: string }> {
+  const ctF = fileContentType(front);
+  const ctB = fileContentType(back);
+  const [pf, pb] = await Promise.all([
+    presignCollegeIdUpload(firebaseIdToken, {
+      role,
+      side: "front",
+      contentType: ctF,
+    }),
+    presignCollegeIdUpload(firebaseIdToken, {
+      role,
+      side: "back",
+      contentType: ctB,
+    }),
+  ]);
+  await Promise.all([
+    putToPresignedUrl(pf.uploadUrl, front, ctF),
+    putToPresignedUrl(pb.uploadUrl, back, ctB),
+  ]);
+  return {
+    collegeIdFrontKey: pf.key,
+    collegeIdBackKey: pb.key,
+  };
+}
+
+export async function presignProfilePictureUpload(
+  firebaseIdToken: string,
+  params: {
+    role: "advisor" | "student";
+    contentType: string;
+  },
+): Promise<CollegeIdPresignResponse> {
+  const res = await fetch(url("/api/upload/profile-picture/presign"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+    body: JSON.stringify({
+      role: params.role,
+      contentType: params.contentType,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res));
+  }
+  return await parseJsonOrThrow<CollegeIdPresignResponse>(res);
+}
+
+/** Presign one avatar PUT; returns S3 object key for register payload. */
+export async function uploadProfilePictureToS3(
+  firebaseIdToken: string,
+  role: "advisor" | "student",
+  file: File,
+): Promise<string> {
+  const ct = fileContentType(file);
+  const p = await presignProfilePictureUpload(firebaseIdToken, {
+    role,
+    contentType: ct,
+  });
+  await putToPresignedUrl(p.uploadUrl, file, ct);
+  return p.key;
+}
 
 export async function registerStudent(
   firebaseIdToken: string,
@@ -314,7 +451,7 @@ export async function confirmPasswordResetOtp(
 export async function notifyStudentSessionUpdate(
   firebaseIdToken: string,
   payload: {
-    action: "reject" | "change";
+    action: "accept" | "reject" | "change";
     student_email: string;
     student_name: string;
     old_slot: string;
@@ -342,6 +479,60 @@ export async function notifyAdvisorFinalSlot(
   },
 ): Promise<{ ok: boolean }> {
   const res = await fetch(url("/api/students/sessions/notify-advisor-final-slot"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ ok: boolean }>(res);
+}
+
+export async function getAdvisorReferralSummary(
+  firebaseIdToken: string,
+): Promise<ReferralSummaryResponse> {
+  const res = await fetch(url("/api/advisors/referrals/summary"), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${firebaseIdToken}` },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<ReferralSummaryResponse>(res);
+}
+
+export async function createAdvisorReferral(
+  firebaseIdToken: string,
+  payload: { referred_email: string },
+): Promise<{ ok: boolean }> {
+  const res = await fetch(url("/api/advisors/referrals/create"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${firebaseIdToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<{ ok: boolean }>(res);
+}
+
+export async function getStudentReferralSummary(
+  firebaseIdToken: string,
+): Promise<ReferralSummaryResponse> {
+  const res = await fetch(url("/api/students/referrals/summary"), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${firebaseIdToken}` },
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
+  return await parseJsonOrThrow<ReferralSummaryResponse>(res);
+}
+
+export async function createStudentReferral(
+  firebaseIdToken: string,
+  payload: { referred_email: string; referred_role: "student" | "advisor" },
+): Promise<{ ok: boolean }> {
+  const res = await fetch(url("/api/students/referrals/create"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

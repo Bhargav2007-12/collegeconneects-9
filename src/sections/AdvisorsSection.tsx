@@ -65,12 +65,13 @@ function AdvisorCard({ advisor, index }: { advisor: Advisor; index: number }) {
             <span className="text-sm text-muted-foreground">per session</span>
             <div className="text-xl font-display font-bold text-neon-orange">₹{advisor.sessionPrice.toString()}</div>
           </div>
-          <motion.div animate={{ y: hovered ? 0 : 8, opacity: hovered ? 1 : 0 }} transition={{ duration: 0.2 }}>
-            <Button size="sm" className="bg-neon-orange/90 hover:bg-neon-orange text-background font-semibold rounded-xl text-xs px-4 glow-orange"
-              data-ocid={`advisors.card.${index + 1}`}>
-              Book Session
-              <ArrowRight size={12} className="ml-1" />
-            </Button>
+          <motion.div
+            animate={{ x: hovered ? 2 : 0 }}
+            transition={{ duration: 0.2 }}
+            className="inline-flex items-center text-xs text-muted-foreground"
+          >
+            View profile
+            <ArrowRight size={12} className="ml-1" />
           </motion.div>
         </div>
       </div>

@@ -7,11 +7,17 @@ import { getFirebaseAuth } from "@/lib/firebase";
 import { afterVerificationEmailSent } from "@/lib/authMessages";
 import {
   formatFirebaseAuthError,
+  formatSignInAfterEmailExistsError,
   isFirebaseAuthCode,
 } from "@/lib/firebaseAuthErrors";
 import { useEmailVerificationSync } from "@/hooks/useEmailVerificationSync";
 import { finalizeFirebaseSignup } from "@/lib/firebaseSignupFinalize";
-import { registerAdvisor } from "@/lib/restApi";
+import { CollegeIdImageUploadBox } from "@/components/CollegeIdImageUploadBox";
+import {
+  registerAdvisor,
+  uploadCollegeIdPairToS3,
+  uploadProfilePictureToS3,
+} from "@/lib/restApi";
 import { FirebaseError } from "firebase/app";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -24,7 +30,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { CheckCircle, Loader, Mail, Upload, UserPlus, X } from "lucide-react";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useReducer, useRef, useState } from "react";
 import { AuthShell } from "./AuthShell";
 
 const INDIAN_STATES = [
@@ -181,6 +187,13 @@ const HOURLY_TIME_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
   const hour12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${hour12}:00 ${suffix}`;
 });
+const SESSION_PRICE_OPTIONS = ["100", "150", "200", "250", "300", "350", "400"] as const;
+
+function plusOneHour(timeLabel: string): string {
+  const idx = HOURLY_TIME_OPTIONS.indexOf(timeLabel);
+  if (idx < 0) return "";
+  return HOURLY_TIME_OPTIONS[(idx + 1) % HOURLY_TIME_OPTIONS.length] ?? "";
+}
 
 function detectCollege(email: string): string {
   const domain = email.split("@")[1]?.toLowerCase();
@@ -193,65 +206,6 @@ function detectCollege(email: string): string {
 }
 
 
-function ImageUploadBox({
-  label,
-  preview,
-  onUpload,
-  onRemove,
-}: {
-  label: string;
-  preview: string | null;
-  onUpload: (file: File) => void;
-  onRemove: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) onUpload(file);
-  };
-  return (
-    <div className="flex flex-col gap-1 flex-1">
-      <p className="text-xs text-muted-foreground mb-1">{label}</p>
-      {preview ? (
-        <div className="relative rounded-xl overflow-hidden border border-green-500 h-32">
-          <img
-            src={preview}
-            alt={label}
-            className="w-full h-full object-cover"
-          />
-          <button
-            type="button"
-            onClick={onRemove}
-            className="absolute top-1 right-1 bg-black/60 rounded-full p-1 text-white hover:bg-black/80 transition-all"
-          >
-            <X size={12} />
-          </button>
-          <div className="absolute bottom-1 left-1 bg-green-500/80 rounded-full px-2 py-0.5 text-xs text-white flex items-center gap-1">
-            <CheckCircle size={10} /> Uploaded
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          className="h-32 border-2 border-dashed border-border hover:border-neon-orange rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-neon-orange transition-all duration-300 cursor-pointer"
-        >
-          <Upload size={20} />
-          <span className="text-xs">Click to upload</span>
-          <span className="text-xs opacity-60">JPG, PNG (max 5MB)</span>
-        </button>
-      )}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleChange}
-        className="hidden"
-      />
-    </div>
-  );
-}
-
 export default function AdvisorSignupPage() {
   const navigate = useNavigate();
   const [, bump] = useReducer((x: number) => x + 1, 0);
@@ -262,6 +216,7 @@ export default function AdvisorSignupPage() {
   const [detectedCollege, setDetectedCollege] = useState("");
   const [branch, setBranch] = useState("");
   const [phone, setPhone] = useState("");
+  const [upiId, setUpiId] = useState("");
   const [personalEmail, setPersonalEmail] = useState("");
   const [state, setState] = useState("");
   const [jeeMainsPercentile, setJeeMainsPercentile] = useState("");
@@ -272,6 +227,9 @@ export default function AdvisorSignupPage() {
   const [achievements, setAchievements] = useState("");
   const [languages, setLanguages] = useState<string[]>([]);
   const [languageOther, setLanguageOther] = useState("");
+  const [profilePicPreview, setProfilePicPreview] = useState<string | null>(null);
+  const [profilePicFile, setProfilePicFile] = useState<File | null>(null);
+  const profilePicInputRef = useRef<HTMLInputElement>(null);
   const [sessionPrice, setSessionPrice] = useState("");
   const [preferredTimezones, setPreferredTimezones] = useState<
     Array<{ from: string; to: string }>
@@ -290,22 +248,40 @@ export default function AdvisorSignupPage() {
   const [idBackPreview, setIdBackPreview] = useState<string | null>(null);
   const [idBackFile, setIdBackFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    document.title = "Advisor Sign Up — CollegeConnect";
-  }, []);
+  const [referralCode, setReferralCode] = useState("");
 
   useEffect(() => {
     const auth = getFirebaseAuth();
     return onAuthStateChanged(auth, setAuthUser);
   }, []);
 
+  // Keep local email in sync when a session exists (e.g. refresh).
+  useEffect(() => {
+    const u = authUser?.email;
+    if (!u) return;
+    setCollegeEmail(u);
+    setDetectedCollege(detectCollege(u));
+  }, [authUser]);
+
   useEmailVerificationSync(authUser, setAuthUser, bump);
 
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const email = e.target.value;
-    setCollegeEmail(email);
-    setDetectedCollege(detectCollege(email));
+  const handleEmailChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const next = e.target.value;
+    const signedIn = authUser?.email;
+    // Update state synchronously so the controlled input stays responsive; sign-out
+    // in the background after a mismatch (awaiting before setState felt "stuck").
+    setCollegeEmail(next);
+    setDetectedCollege(detectCollege(next));
+    if (signedIn != null && signedIn !== "" && next !== signedIn) {
+      void signOut(getFirebaseAuth())
+        .then(() => {
+          setPassword("");
+          setConfirmPassword("");
+        })
+        .catch(() => {
+          /* ignore */
+        });
+    }
   };
 
   const handleAuthenticate = async () => {
@@ -324,16 +300,40 @@ export default function AdvisorSignupPage() {
       return;
     }
     const auth = getFirebaseAuth();
+    const trimmedCollege = collegeEmail.trim();
+    const alreadyThisUser = auth.currentUser;
+    if (
+      alreadyThisUser &&
+      alreadyThisUser.email?.toLowerCase() === trimmedCollege.toLowerCase()
+    ) {
+      setAuthenticating(true);
+      try {
+        if (!alreadyThisUser.emailVerified) {
+          await sendEmailVerification(alreadyThisUser);
+          alert(afterVerificationEmailSent(trimmedCollege));
+        } else {
+          alert(
+            "You're already signed in with this college email. Continue the form below, or sign out to use a different email.",
+          );
+        }
+      } catch (err) {
+        alert(formatFirebaseAuthError(err));
+      } finally {
+        setAuthenticating(false);
+      }
+      return;
+    }
+
     setAuthenticating(true);
     try {
       const cred = await createUserWithEmailAndPassword(
         auth,
-        collegeEmail.trim(),
+        trimmedCollege,
         password,
       );
       try {
         await sendEmailVerification(cred.user);
-        alert(afterVerificationEmailSent(collegeEmail.trim()));
+        alert(afterVerificationEmailSent(trimmedCollege));
       } catch (verifyErr) {
         alert(
           `Your account was created, but the verification email could not be sent:\n\n${formatFirebaseAuthError(verifyErr)}`,
@@ -344,13 +344,13 @@ export default function AdvisorSignupPage() {
         try {
           const cred = await signInWithEmailAndPassword(
             auth,
-            collegeEmail.trim(),
+            trimmedCollege,
             password,
           );
           try {
             if (!cred.user.emailVerified) {
               await sendEmailVerification(cred.user);
-              alert(afterVerificationEmailSent(collegeEmail.trim()));
+              alert(afterVerificationEmailSent(trimmedCollege));
             } else {
               alert(
                 "This email is already verified. Use Sign in below to open your account.",
@@ -362,7 +362,7 @@ export default function AdvisorSignupPage() {
             );
           }
         } catch (signInErr) {
-          alert(formatFirebaseAuthError(signInErr));
+          alert(formatSignInAfterEmailExistsError(signInErr));
         }
       } else {
         alert(formatFirebaseAuthError(e));
@@ -395,19 +395,53 @@ export default function AdvisorSignupPage() {
 
   const handleSignOutFirebase = async () => {
     await signOut(getFirebaseAuth());
+    setCollegeEmail("");
+    setDetectedCollege("");
     setPassword("");
     setConfirmPassword("");
   };
 
   const handleIdUpload = (side: "front" | "back", file: File) => {
-    const url = URL.createObjectURL(file);
+    if (!file.type.startsWith("image/")) {
+      alert("Please upload an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("College ID image must be under 5MB.");
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
     if (side === "front") {
-      setIdFrontPreview(url);
+      setIdFrontPreview(objectUrl);
       setIdFrontFile(file);
     } else {
-      setIdBackPreview(url);
+      setIdBackPreview(objectUrl);
       setIdBackFile(file);
     }
+  };
+
+  const clearProfilePicture = () => {
+    if (profilePicPreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(profilePicPreview);
+    }
+    setProfilePicPreview(null);
+    setProfilePicFile(null);
+  };
+
+  const handleProfilePicUpload = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      alert("Please upload an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Profile image must be under 5MB.");
+      return;
+    }
+    if (profilePicPreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(profilePicPreview);
+    }
+    setProfilePicPreview(URL.createObjectURL(file));
+    setProfilePicFile(file);
   };
 
   const handleSignup = async () => {
@@ -422,11 +456,11 @@ export default function AdvisorSignupPage() {
       !detectedCollege ||
       !branch ||
       !phone ||
+      !upiId.trim() ||
       !state ||
       !jeeMainsPercentile ||
       !jeeMainsRank ||
       !bio ||
-      !skills ||
       !sessionPrice ||
       selectedPreferredTimezones.length < 4
     ) {
@@ -462,6 +496,16 @@ export default function AdvisorSignupPage() {
       alert("Please upload both sides of your college ID!");
       return;
     }
+    if (Number(sessionPrice) > 200) {
+      alert(
+        "At initial signup, you can select up to ₹200 only. Unlock rules: ₹250 (>=2 sessions), ₹300 (>=5 sessions), ₹350 (>=8 sessions), ₹400 (>=10 sessions).",
+      );
+      return;
+    }
+    if (languages.length === 0) {
+      alert("Please select at least one language.");
+      return;
+    }
     if (languages.includes(OTHER_LANGUAGE_LABEL) && !languageOther.trim()) {
       alert('Please specify your language(s) when "Other" is selected.');
       return;
@@ -475,6 +519,19 @@ export default function AdvisorSignupPage() {
         alert("Signed out unexpectedly. Sign in again and try once more.");
         return;
       }
+      const token = await after.getIdToken(true);
+      const { collegeIdFrontKey, collegeIdBackKey } = await uploadCollegeIdPairToS3(
+        token,
+        "advisor",
+        idFrontFile,
+        idBackFile,
+      );
+
+      let profilePictureKey: string | undefined;
+      if (profilePicFile) {
+        profilePictureKey = await uploadProfilePictureToS3(token, "advisor", profilePicFile);
+      }
+
       const payload: Record<string, unknown> = {
         name,
         gender,
@@ -482,16 +539,20 @@ export default function AdvisorSignupPage() {
         detectedCollege,
         branch,
         phone,
+        upiId: upiId.trim(),
         state,
         jeeMainsPercentile,
         jeeMainsRank,
         bio,
-        skills,
         sessionPrice,
         collegeIdAcknowledged: true,
+        collegeIdFrontKey,
+        collegeIdBackKey,
         languages,
         preferredTimezones: selectedPreferredTimezones,
       };
+      const skillsValue = skills.trim();
+      if (skillsValue) payload.skills = skillsValue;
       const pe = personalEmail.trim();
       if (pe) payload.personalEmail = pe;
       const ja = jeeAdvancedRank.trim();
@@ -500,8 +561,9 @@ export default function AdvisorSignupPage() {
       if (ach) payload.achievements = ach;
       const lo = languageOther.trim();
       if (lo) payload.languageOther = lo;
+      if (profilePictureKey) payload.profilePicture = profilePictureKey;
+      if (referralCode.trim()) payload.referralCode = referralCode.trim();
 
-      const token = await after.getIdToken(true);
       const saved = await registerAdvisor(token, payload);
       navigate({
         to: "/advisor/dashboard",
@@ -523,7 +585,6 @@ export default function AdvisorSignupPage() {
   };
 
   const emailOk = !!authUser?.emailVerified;
-  const passwordLockedUntilVerified = !!authUser && !emailOk;
 
   return (
     <AuthShell
@@ -539,6 +600,29 @@ export default function AdvisorSignupPage() {
           handled by Google.
         </p>
 
+        <div className="rounded-xl border border-border/60 bg-background/30 px-3 py-3 space-y-2">
+          <label
+            htmlFor="advisor-signup-referral"
+            className="text-sm text-muted-foreground"
+          >
+            Referral code <span className="text-xs font-normal">(optional)</span>
+          </label>
+          <input
+            id="advisor-signup-referral"
+            type="text"
+            placeholder="e.g. ADV-AB12CD34"
+            value={referralCode}
+            onChange={(e) => setReferralCode(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+          />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            If an advisor invited you, enter their code from Refer &amp; Earn. They earn 3% on your
+            session fees for up to 5 sessions; the referrer must have attended at least 2 sessions.
+          </p>
+        </div>
+
         <div className="flex flex-col gap-1">
           <label className="text-sm text-muted-foreground">
             Full Name <span className="text-neon-orange">•</span>
@@ -549,6 +633,42 @@ export default function AdvisorSignupPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-sm text-muted-foreground">
+            Profile picture <span className="text-xs">(optional)</span>
+          </label>
+          {profilePicPreview ? (
+            <div className="relative w-24 h-24 rounded-full overflow-hidden border border-neon-orange/40">
+              <img src={profilePicPreview} alt="Profile preview" className="w-full h-full object-cover" />
+              <button
+                type="button"
+                onClick={() => clearProfilePicture()}
+                className="absolute -top-1 -right-1 bg-black/70 rounded-full p-1 text-white"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => profilePicInputRef.current?.click()}
+              className="h-24 w-24 rounded-full border-2 border-dashed border-border hover:border-neon-orange text-muted-foreground hover:text-neon-orange flex items-center justify-center transition-colors"
+            >
+              <Upload size={18} />
+            </button>
+          )}
+          <input
+            ref={profilePicInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleProfilePicUpload(file);
+            }}
           />
         </div>
 
@@ -576,12 +696,12 @@ export default function AdvisorSignupPage() {
           <input
             type="email"
             placeholder="you@college.edu.in"
+            autoComplete="email"
             value={collegeEmail}
             onChange={handleEmailChange}
-            disabled={!!authUser}
             className={`bg-background border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none transition-colors ${
-              authUser
-                ? "border-green-500/60 cursor-not-allowed opacity-80"
+              authUser && collegeEmail === authUser.email
+                ? "border-green-500/60"
                 : detectedCollege
                   ? "border-neon-orange focus:border-neon-orange"
                   : "border-border focus:border-neon-orange"
@@ -607,7 +727,6 @@ export default function AdvisorSignupPage() {
           placeholder="At least 6 characters"
           value={password}
           onChange={setPassword}
-          disabled={passwordLockedUntilVerified}
           variant="orange"
         />
 
@@ -623,7 +742,6 @@ export default function AdvisorSignupPage() {
           placeholder="Re-enter password"
           value={confirmPassword}
           onChange={setConfirmPassword}
-          disabled={passwordLockedUntilVerified}
           variant="orange"
         />
 
@@ -637,19 +755,25 @@ export default function AdvisorSignupPage() {
         ) : null}
 
         {!authUser ? (
-          <Button
-            type="button"
-            onClick={handleAuthenticate}
-            disabled={authenticating || !detectedCollege}
-            className="w-full bg-neon-orange/90 hover:bg-neon-orange text-background font-semibold rounded-xl"
-          >
-            {authenticating ? (
-              <Loader size={16} className="mr-2 animate-spin" />
-            ) : (
-              <Mail size={16} className="mr-2" />
-            )}
-            {authenticating ? "Authenticating…" : "Authenticate"}
-          </Button>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Please check the verification email in spam if you haven&apos;t received the email in your
+              primary inbox.
+            </p>
+            <Button
+              type="button"
+              onClick={handleAuthenticate}
+              disabled={authenticating || !detectedCollege}
+              className="w-full bg-neon-orange hover:bg-neon-orange/95 text-black font-semibold rounded-xl shadow-lg shadow-neon-orange/30 border border-orange-400/90 ring-1 ring-white/10 disabled:opacity-50 disabled:shadow-none"
+            >
+              {authenticating ? (
+                <Loader size={16} className="mr-2 animate-spin" />
+              ) : (
+                <Mail size={16} className="mr-2" />
+              )}
+              {authenticating ? "Authenticating…" : "Authenticate"}
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-col gap-2 rounded-xl border border-border/80 p-3">
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -751,6 +875,23 @@ export default function AdvisorSignupPage() {
         </div>
 
         <div className="flex flex-col gap-1">
+          <label
+            htmlFor="advisor-signup-upi"
+            className="text-sm text-muted-foreground"
+          >
+            UPI ID <span className="text-neon-orange">•</span>
+          </label>
+          <input
+            id="advisor-signup-upi"
+            type="text"
+            placeholder="example@upi"
+            value={upiId}
+            onChange={(e) => setUpiId(e.target.value)}
+            className="bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
           <label className="text-sm text-muted-foreground">
             Personal Email <span className="text-xs">(optional)</span>
           </label>
@@ -829,7 +970,8 @@ export default function AdvisorSignupPage() {
             Upload both sides of your college ID for verification.
           </p>
           <div className="flex gap-3">
-            <ImageUploadBox
+            <CollegeIdImageUploadBox
+              variant="orange"
               label="Front Side"
               preview={idFrontPreview}
               onUpload={(file) => handleIdUpload("front", file)}
@@ -838,7 +980,8 @@ export default function AdvisorSignupPage() {
                 setIdFrontFile(null);
               }}
             />
-            <ImageUploadBox
+            <CollegeIdImageUploadBox
+              variant="orange"
               label="Back Side"
               preview={idBackPreview}
               onUpload={(file) => handleIdUpload("back", file)}
@@ -849,8 +992,8 @@ export default function AdvisorSignupPage() {
             />
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            🔒 ID images are checked in the app only; image files are not saved
-            to our database (add cloud storage later if you need archival).
+            🔒 Images are uploaded securely to cloud storage; we store references only, not raw
+            files in the database.
           </p>
         </div>
 
@@ -879,7 +1022,7 @@ export default function AdvisorSignupPage() {
 
           <div className="flex flex-col gap-1 mb-4">
             <label className="text-sm text-muted-foreground">
-              Skills <span className="text-neon-orange">•</span>
+              Skills <span className="text-xs">(optional)</span>
             </label>
             <input
               type="text"
@@ -910,7 +1053,7 @@ export default function AdvisorSignupPage() {
             <LanguageMultiSelect
               variant="orange"
               label="Languages I speak"
-              optionalHint="(optional)"
+              optionalHint="•"
               value={languages}
               onChange={setLanguages}
               otherDetail={languageOther}
@@ -922,20 +1065,28 @@ export default function AdvisorSignupPage() {
             <label className="text-sm text-muted-foreground">
               Session Price (₹) <span className="text-neon-orange">•</span>
             </label>
-            <div className="relative">
-              <span className="absolute left-4 top-2 text-sm text-muted-foreground">
-                ₹
-              </span>
-              <input
-                type="number"
-                placeholder="e.g. 499"
-                value={sessionPrice}
-                onChange={(e) => setSessionPrice(e.target.value)}
-                className="w-full bg-background border border-border rounded-xl pl-8 pr-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors"
-              />
-            </div>
+            <select
+              value={sessionPrice}
+              onChange={(e) => setSessionPrice(e.target.value)}
+              className="w-full bg-background border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-neon-orange transition-colors cursor-pointer"
+            >
+              <option value="">Select amount</option>
+              {SESSION_PRICE_OPTIONS.map((amount) => {
+                const numeric = Number(amount);
+                const locked = numeric > 200;
+                const withCrown = numeric >= 250;
+                return (
+                  <option key={`session-price-${amount}`} value={amount} disabled={locked}>
+                    {withCrown ? `👑 ₹${amount}` : `₹${amount}`}
+                  </option>
+                );
+              })}
+            </select>
             <p className="text-xs text-muted-foreground mt-1">
               How much you charge per session
+            </p>
+            <p className="text-xs text-amber-500/90">
+              Note: At initial signup, amounts above ₹200 are locked. Unlock rules by sessions attended: ₹250 (at least 2 sessions), ₹300 (at least 5 sessions), ₹350 (at least 8 sessions), ₹400 (at least 10 sessions).
             </p>
           </div>
 
@@ -952,7 +1103,14 @@ export default function AdvisorSignupPage() {
                     onChange={(e) =>
                       setPreferredTimezones((prev) =>
                         prev.map((item, i) =>
-                          i === index ? { ...item, from: e.target.value } : item,
+                          i === index
+                            ? {
+                                ...item,
+                                from: e.target.value,
+                                // Keep slot duration fixed to 1 hour from selected start.
+                                to: plusOneHour(e.target.value),
+                              }
+                            : item,
                         ),
                       )
                     }
@@ -1013,13 +1171,16 @@ export default function AdvisorSignupPage() {
             <p className="text-xs text-muted-foreground mt-1">
               Select from/to time for each slot (1-hour options). Minimum 4 slots required.
             </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Providing a greater number of available time slots can significantly enhance an advisor’s chances of receiving more session bookings by increasing accessibility and flexibility for students.
+            </p>
           </div>
         </div>
 
         <div className="mt-2">
           <Button
             onClick={handleSignup}
-            disabled={!authUser || !emailOk || submitting}
+            disabled={submitting}
             className="w-full bg-neon-orange hover:bg-neon-orange/90 text-background font-semibold rounded-xl px-5 glow-orange transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? (

@@ -1,3 +1,4 @@
+import { BrandLogo } from "@/components/BrandLogo";
 import { Link } from "@tanstack/react-router";
 import { Briefcase, GraduationCap, LogIn, UserPlus, ArrowLeft } from "lucide-react";
 import { motion } from "motion/react";
@@ -48,6 +49,11 @@ export default function GetStartedPage() {
           transition={{ duration: 0.5 }}
           className="text-center mb-12"
         >
+          <div className="flex justify-center mb-6">
+            <Link to="/" className="inline-flex" aria-label="CollegeConnect home">
+              <BrandLogo size="xl" />
+            </Link>
+          </div>
           <div className="inline-flex items-center gap-2 glass neon-border-teal rounded-full px-4 py-2 mb-6 text-sm">
             <span className="w-1.5 h-1.5 rounded-full bg-neon-teal animate-pulse" />
             <span className="text-muted-foreground">Join CollegeConnect</span>

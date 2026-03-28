@@ -1,3 +1,4 @@
+import { BrandLogo, brandLogoSrc } from "@/components/BrandLogo";
 import { Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -22,7 +23,29 @@ export default function HeroSection() {
           }} />
       </div>
 
+      {/* Large background mark — PNG alpha only, no CSS “plate” behind it */}
+      <div
+        className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center"
+        aria-hidden
+      >
+        <img
+          src={brandLogoSrc}
+          alt=""
+          width={1024}
+          height={1024}
+          className="w-[min(92vw,760px)] max-h-[min(58vh,560px)] object-contain object-center opacity-[0.09] select-none bg-transparent"
+        />
+      </div>
+
       <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 text-center">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="mb-8 flex justify-center"
+        >
+          <BrandLogo size="xl" />
+        </motion.div>
         {/* Badge */}
         <motion.div
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}

@@ -1,3 +1,4 @@
+import { BrandLogo } from "@/components/BrandLogo";
 import { Link } from "@tanstack/react-router";
 import { Briefcase, GraduationCap, LogIn, UserPlus } from "lucide-react";
 import { motion } from "motion/react";
@@ -24,6 +25,11 @@ export default function AuthenticationSection() {
           transition={{ duration: 0.6, ease: "easeOut" }}
           className="text-center mb-14"
         >
+          <div className="flex justify-center mb-6">
+            <Link to="/" className="inline-flex" aria-label="CollegeConnect home">
+              <BrandLogo size="lg" />
+            </Link>
+          </div>
           <div className="inline-flex items-center gap-2 glass rounded-full px-4 py-1.5 text-sm text-muted-foreground mb-4">
             <span className="w-1.5 h-1.5 rounded-full bg-neon-blue animate-pulse" />
             Accounts & Access
