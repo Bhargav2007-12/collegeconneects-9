@@ -373,11 +373,12 @@ export default function AdvisorDashboard() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 items-end">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Available Balance</p>
+                    <p className="text-sm text-muted-foreground mb-2">Available Balance (Net)</p>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-5xl font-display font-bold text-foreground">₹{advisorTotalEarnings}</span>
+                      <span className="text-5xl font-display font-bold text-foreground">₹{Math.floor(advisorTotalEarnings * 0.7)}</span>
                       <span className="text-muted-foreground text-sm font-medium">INR</span>
                     </div>
+                    <p className="text-[10px] text-muted-foreground mt-2 italic">* Balance after 30% platform fee</p>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3">
                     <button className="flex-1 inline-flex items-center justify-center gap-2 bg-neon-orange hover:bg-neon-orange/90 text-black font-semibold rounded-2xl h-14 transition-all shadow-lg shadow-neon-orange/20 group">
@@ -398,7 +399,7 @@ export default function AdvisorDashboard() {
                   { label: "Pending Payout", value: "₹0", color: "text-muted-foreground" },
                   { label: "Total Tax Paid", value: "₹0", color: "text-muted-foreground" },
                   { label: "Last Payout", value: "None", color: "text-muted-foreground" },
-                  { label: "Platform Fee", value: "10%", color: "text-neon-teal" },
+                  { label: "Platform Fee", value: "30%", color: "text-neon-teal" },
                 ].map((stat, idx) => (
                   <div key={idx} className="p-4 border-r border-border last:border-r-0 text-center sm:text-left">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{stat.label}</p>
